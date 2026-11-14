@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f172a">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<title>Budżet Domowy</title>
+<style>
+:root{
+  --bg:#f1f5f9; --card:#ffffff; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0;
+  --green:#16a34a; --red:#dc2626; --amber:#d97706; --blue:#2563eb; --violet:#7c3aed;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+header h1{margin:0;font-size:20px;font-weight:700}
+header .sub{font-size:12px;color:#94a3b8;margin-top:2px}
+.monthnav{display:flex;align-items:center;gap:8px}
+.monthnav button{background:#334155;color:#fff;border:none;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:15px}
+.monthnav button:hover{background:#475569}
+.monthnav .lbl{min-width:130px;text-align:center;font-weight:600;font-size:15px}
+nav.tabs{display:flex;gap:6px;background:#fff;border-bottom:1px solid var(--line);padding:8px 16px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
+nav.tabs button{border:1px solid var(--line);background:#fff;border-radius:8px 8px 0 0;padding:8px 14px;cursor:pointer;font-size:14px;color:var(--muted)}
+nav.tabs button.active{color:var(--blue);border-bottom:2px solid var(--blue);font-weight:600}
+main{max-width:1080px;margin:0 auto;padding:16px}
+.grid{display:grid;gap:12px}
+.g3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card h3{margin:0 0 10px;font-size:14px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.big{font-size:22px;font-weight:700}
+.big.pos{color:var(--green)} .big.neg{color:var(--red)}
+.hint{font-size:12px;color:var(--muted);margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:var(--muted);font-weight:600;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:6px 8px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.pos{color:var(--green)} .neg{color:var(--red)} .mut{color:var(--muted)}
+.badge{display:inline-block;font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;vertical-align:middle}
+.badge.P{background:#dbeafe;color:var(--blue)} .badge.Z{background:#fef3c7;color:var(--amber)}
+.badge.t-expense{background:#e2e8f0;color:#475569}
+.badge.t-savings{background:#dcfce7;color:var(--green)}
+.badge.t-rebalance{background:#ede9fe;color:var(--violet)}
+.bar{background:#eef2f7;border-radius:6px;height:8px;overflow:hidden;margin-top:4px}
+.bar>div{height:100%;border-radius:6px}
+.grouprow td{background:#f8fafc;font-weight:600}
+input,select,textarea{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)}
+input:focus,select:focus{outline:2px solid #bfdbfe;border-color:var(--blue)}
+.amount{width:110px;text-align:right}
+.btn{border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:14px;font-weight:600;background:var(--blue);color:#fff}
+.btn.sec{background:#e2e8f0;color:var(--ink)}
+.btn.mini{padding:4px 8px;font-size:12px;font-weight:500}
+.btn.danger{background:#fee2e2;color:var(--red)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+form.txn{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+form.txn label{display:flex;flex-direction:column;font-size:11px;color:var(--muted);gap:3px}
+.kpi-edit{width:120px;text-align:right}
+.chart{width:100%;height:auto}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted);margin-top:6px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+.empty{color:var(--muted);font-size:13px;padding:8px}
+.warnbox{background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;font-size:13px;margin:12px 0;display:none}
+.grouphdr{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.progress-list .item{margin-bottom:10px}
+.progress-list .top{display:flex;justify-content:space-between;font-size:13px;gap:8px}
+@media (max-width:640px){ .amount{width:90px} }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Budżet Domowy</h1>
+    <div class="sub">budżet zerowy: przychody, wydatki, oszczędności, rebalancing (offline)</div>
+  </div>
+  <div class="monthnav">
+    <button id="prev-month" title="Poprzedni miesiąc">&#8249;</button>
+    <span class="lbl" id="month-label"></span>
+    <button id="next-month" title="Następny miesiąc">&#8250;</button>
+  </div>
+</header>
+<nav class="tabs" id="tabs"></nav>
+<div class="warnbox" id="storage-warn"></div>
+<main><div id="view"></div></main>
+<input type="file" id="import-file" accept=".json,application/json" style="display:none">
+
+<script>
+"use strict";
+var STORAGE_KEY = "budzet-domowy-html-v2";
+var SEED = {
+ "version": 2,
+ "month": "2026-11",
+ "incomeCats": [
+  {
+   "id": "i-wynagrodzenie",
+   "name": "Wynagrodzenie",
+   "passive": false
+  },
+  {
+   "id": "i-odsetki",
+   "name": "Odsetki bankowe",
+   "passive": true
+  },
+  {
+   "id": "i-zwroty",
+   "name": "Zwroty i darowizny",
+   "passive": false
+  }
+ ],
+ "groups": [
+  {
+   "id": "g-jedzenie",
+   "name": "Jedzenie i picie",
+   "type": "expense"
+  },
+  {
+   "id": "g-mieszkanie",
+   "name": "Mieszkanie",
+   "type": "expense"
+  },
+  {
+   "id": "g-transport",
+   "name": "Transport",
+   "type": "expense"
+  },
+  {
+   "id": "g-rozrywka",
+   "name": "Rozrywka",
+   "type": "expense"
+  },
+  {
+   "id": "g-oszczednosci",
+   "name": "Oszczędności i inwestycje",
+   "type": "savings"
+  },
+  {
+   "id": "g-rebalancing",
+   "name": "Rebalancing",
+   "type": "rebalance"
+  }
+ ],
+ "subcats": [
+  {
+   "id": "s-jedzenie-dom",
+   "groupId": "g-jedzenie",
+   "name": "Jedzenie w domu",
+   "pz": "P",
+   "note": null
+  },
+  {
+   "id": "s-restauracje",
+   "groupId": "g-jedzenie",
+   "name": "Restauracje",
+   "pz": "Z",
+   "note": null
+  },
+  {
+   "id": "s-czynsz",
+   "groupId": "g-mieszkanie",
+   "name": "Czynsz i media",
+   "pz": "P",
+   "note": null
+  },
+  {
+   "id": "s-internet",
+   "groupId": "g-mieszkanie",
+   "name": "Internet",
+   "pz": "P",
+   "note": null
+  },
+  {
+   "id": "s-paliwo",
+   "groupId": "g-transport",
+   "name": "Paliwo",
+   "pz": "P",
+   "note": null
+  },
+  {
+   "id": "s-komunikacja",
+   "groupId": "g-transport",
+   "name": "Komunikacja publiczna",
+   "pz": "Z",
+   "note": null
+  },
+  {
+   "id": "s-hobby",
+   "groupId": "g-rozrywka",
+   "name": "Hobby",
+   "pz": "Z",
+   "note": null
+  },
+  {
+   "id": "s-kino",
+   "groupId": "g-rozrywka",
+   "name": "Kino i teatr",
+   "pz": "Z",
+   "note": null
+  },
+  {
+   "id": "s-konto-oszcz",
+   "groupId": "g-oszczednosci",
+   "name": "Konto oszczędnościowe",
+   "pz": "Z",
+   "note": null
+  },
+  {
+   "id": "s-portfel",
+   "groupId": "g-rebalancing",
+   "name": "Portfel (gotówka)",
+   "pz": null,
+   "note": null
+  }
+ ],
+ "budgets": {
+  "2026-11::sub:s-jedzenie-dom": 1200,
+  "2026-11::sub:s-restauracje": 300,
+  "2026-11::sub:s-czynsz": 1500,
+  "2026-11::sub:s-internet": 60,
+  "2026-11::sub:s-paliwo": 400,
+  "2026-11::sub:s-komunikacja": 100,
+  "2026-11::sub:s-hobby": 200,
+  "2026-11::sub:s-kino": 100,
+  "2026-11::sub:s-konto-oszcz": 1000,
+  "2026-11::sub:s-portfel": 300
+ },
+ "incomePlans": {
+  "2026-11::inc:i-wynagrodzenie": 6500
+ },
+ "kpiManual": {
+  "2026-11::kk": 0.0
+ },
+ "txns": [
+  {
+   "id": "t1",
+   "date": "2026-11-01",
+   "kind": "income",
+   "catId": "i-wynagrodzenie",
+   "amount": 6500.0,
+   "note": "przykład: wypłata"
+  },
+  {
+   "id": "t2",
+   "date": "2026-11-02",
+   "kind": "expense",
+   "catId": "s-czynsz",
+   "amount": 1500.0,
+   "note": "przykład"
+  },
+  {
+   "id": "t3",
+   "date": "2026-11-03",
+   "kind": "expense",
+   "catId": "s-jedzenie-dom",
+   "amount": 230.45,
+   "note": "przykład: zakupy"
+  },
+  {
+   "id": "t4",
+   "date": "2026-11-05",
+   "kind": "expense",
+   "catId": "s-paliwo",
+   "amount": 180.0,
+   "note": "przykład"
+  },
+  {
+   "id": "t5",
+   "date": "2026-11-08",
+   "kind": "income",
+   "catId": "i-odsetki",
+   "amount": 12.3,
+   "note": "przykład"
+  },
+  {
+   "id": "t6",
+   "date": "2026-11-10",
+   "kind": "expense",
+   "catId": "s-kino",
+   "amount": 45.0,
+   "note": "przykład"
+  },
+  {
+   "id": "t7",
+   "date": "2026-11-12",
+   "kind": "expense",
+   "catId": "s-konto-oszcz",
+   "amount": 1000.0,
+   "note": "przykład: przelew na oszczędności"
+  },
+  {
+   "id": "t8",
+   "date": "2026-11-14",
+   "kind": "expense",
+   "catId": "s-portfel",
+   "amount": 150.0,
+   "note": "przykład: wypłata z bankomatu"
+  },
+  {
+   "id": "t9",
+   "date": "2026-11-15",
+   "kind": "expense",
+   "catId": "s-restauracje",
+   "amount": 84.2,
+   "note": "przykład"
+  },
+  {
+   "id": "t10",
+   "date": "2026-11-16",
+   "kind": "expense",
+   "catId": "s-internet",
+   "amount": 60.0,
+   "note": "przykład"
+  }
+ ]
+};
+
+var PALETTE = ["#2563eb","#dc2626","#16a34a","#d97706","#7c3aed","#0891b2","#db2777","#65a30d","#ea580c","#475569","#0d9488","#9333ea","#b45309","#059669","#1d4ed8","#be123c","#57534e"];
+var TYPE_LABEL = {expense:"wydatek", savings:"oszczędności/inwestycje", rebalance:"rebalancing"};
+
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function pln(v){ v = Math.round((v||0)*100)/100; return v.toLocaleString("pl-PL",{minimumFractionDigits:2,maximumFractionDigits:2}) + " zł"; }
+function plnSigned(v,kind){ var s = pln(Math.abs(v)); return (v<0?"-":(kind==="income"?"+":"")) + s; }
+function uid(){ return "u" + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function currentMonth(){ var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
+function addMonths(m,delta){ var p=m.split("-"),y=+p[0],mm=+p[1]+delta; while(mm<1){mm+=12;y--;} while(mm>12){mm-=12;y++;} return y+"-"+String(mm).padStart(2,"0"); }
+function monthLabel(m){ var p=m.split("-"); var s=new Intl.DateTimeFormat("pl-PL",{month:"long",year:"numeric"}).format(new Date(+p[0],+p[1]-1,1)); return s.charAt(0).toUpperCase()+s.slice(1); }
+function shortMonth(m){ var p=m.split("-"); return new Intl.DateTimeFormat("pl-PL",{month:"short"}).format(new Date(+p[0],+p[1]-1,1)); }
+function parseAmount(v){ v=String(v||"").replace(/\s/g,"").replace(",","."); var n=parseFloat(v); return isNaN(n)?0:Math.round(n*100)/100; }
+
+// ---------- stan ----------
+var state, month, activeTab="pulpit", editTxnId=null;
+
+function loadState(){
+  try{
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){ var s=JSON.parse(raw); if(s && s.version===2) return s; }
+    if(raw && localStorage.getItem("budzet-domowy-html-v1")){
+      // stara wersja (v1) nie jest zgodna z modelem; zaczynamy od danych z arkusza
+      return JSON.parse(JSON.stringify(SEED));
+    }
+  }catch(e){}
+  return null;
+}
+function saveState(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch(e){ showStorageWarn(); }
+}
+function showStorageWarn(){
+  var w=document.getElementById("storage-warn");
+  w.style.display="block";
+  w.innerHTML="Nie udało się zapisać danych w pamięci przeglądarki (localStorage). Aplikacja działa, ale zmiany znikną po zamknięciu. Proszę regularnie eksportować kopię JSON. (Safari potrafi blokować localStorage dla plików otwieranych z dysku.)";
+}
+
+// ---------- dostępy do modelu ----------
+function groupById(id){ for(var i=0;i<state.groups.length;i++) if(state.groups[i].id===id) return state.groups[i]; return null; }
+function subById(id){ for(var i=0;i<state.subcats.length;i++) if(state.subcats[i].id===id) return state.subcats[i]; return null; }
+function incById(id){ for(var i=0;i<state.incomeCats.length;i++) if(state.incomeCats[i].id===id) return state.incomeCats[i]; return null; }
+function groupColor(gid){ for(var i=0;i<state.groups.length;i++) if(state.groups[i].id===gid) return PALETTE[i%PALETTE.length]; return "#94a3b8"; }
+function subsOf(gid){ return state.subcats.filter(function(s){ return s.groupId===gid; }); }
+function txnsOf(m){ return state.txns.filter(function(t){ return t.date.slice(0,7)===m; }); }
+
+// ---------- obliczenia ----------
+function sums(m){
+  var tx=txnsOf(m), r={income:0,expense:0,savings:0,rebalance:0,passive:0,passiveByCat:{}};
+  for(var i=0;i<tx.length;i++){
+    var t=tx[i];
+    if(t.kind==="income"){
+      r.income+=t.amount;
+      var ic=incById(t.catId);
+      if(ic&&ic.passive){ r.passive+=t.amount; r.passiveByCat[ic.name]=(r.passiveByCat[ic.name]||0)+t.amount; }
+    }else{
+      var s=subById(t.catId), g=s?groupById(s.groupId):null;
+      if(!g){ r.expense+=t.amount; continue; }
+      if(g.type==="expense") r.expense+=t.amount;
+      else if(g.type==="savings") r.savings+=t.amount;
+      else if(g.type==="rebalance") r.rebalance+=t.amount;
+    }
+  }
+  for(var k in r){ if(typeof r[k]==="number") r[k]=Math.round(r[k]*100)/100; }
+  return r;
+}
+function planOf(m,subId){ return state.budgets[m+"::sub:"+subId]||0; }
+function setPlan(m,subId,v){ var k=m+"::sub:"+subId; if(v) state.budgets[k]=v; else delete state.budgets[k]; saveState(); }
+function incPlanOf(m,incId){ return state.incomePlans[m+"::inc:"+incId]||0; }
+function setIncPlan(m,incId,v){ var k=m+"::inc:"+incId; if(v) state.incomePlans[k]=v; else delete state.incomePlans[k]; saveState(); }
+function kpi(m,key,val){ var k=m+"::"+key; if(arguments.length===2) return (k in state.kpiManual)? state.kpiManual[k] : null; if(val!==null&&!isNaN(val)) state.kpiManual[k]=Math.round(val*100)/100; else delete state.kpiManual[k]; saveState(); }
+function budgetRows(m){
+  return state.groups.map(function(g){
+    var subs=subsOf(g.id).map(function(s){
+      var plan=planOf(m,s.id), spent=spentOf(m,s.id);
+      return {sub:s, plan:plan, spent:spent, left:Math.round((plan-spent)*100)/100};
+    });
+    var plan=subs.reduce(function(a,x){return a+x.plan;},0);
+    var spent=subs.reduce(function(a,x){return a+x.spent;},0);
+    return {group:g, subs:subs, plan:Math.round(plan*100)/100, spent:Math.round(spent*100)/100, left:Math.round((plan-spent)*100)/100};
+  });
+}
+function spentOf(m,subId){
+  var t=0, tx=txnsOf(m);
+  for(var i=0;i<tx.length;i++) if(tx[i].kind==="expense" && tx[i].catId===subId) t+=tx[i].amount;
+  return Math.round(t*100)/100;
+}
+function incSpentOf(m,incId){
+  var t=0, tx=txnsOf(m);
+  for(var i=0;i<tx.length;i++) if(tx[i].kind==="income" && tx[i].catId===incId) t+=tx[i].amount;
+  return Math.round(t*100)/100;
+}
+function zeroBudget(m){
+  var s=sums(m);
+  var planTotal=state.subcats.reduce(function(a,x){ return a+planOf(m,x.id); },0);
+  var srodki = kpi(m,"srodki"); if(srodki===null) srodki=s.income;
+  var wplynyPlan = state.incomeCats.reduce(function(a,x){ return a+incPlanOf(m,x.id); },0);
+  var wplyny = kpi(m,"wplyny"); if(wplyny===null) wplyny=wplynyPlan;
+  return {
+    srodki:srodki, plan:Math.round(planTotal*100)/100,
+    left:Math.round((srodki-planTotal)*100)/100,
+    wplyny:wplyny, income:s.income, s:s
+  };
+}
+
+// ---------- trendy / wykresy ----------
+function trendMonths(m){ var a=[]; for(var i=5;i>=0;i--) a.push(addMonths(m,-i)); return a; }
+function trendSVG(m){
+  var ms=trendMonths(m), rows=ms.map(function(x){ var s=sums(x); return {m:x, inc:s.income, exp:s.expense+s.savings+s.rebalance}; });
+  var max=Math.max.apply(null,rows.map(function(r){return Math.max(r.inc,r.exp);})); if(max<=0) max=1;
+  var W=600,H=200,padB=24,bw=18,gap=28, step=(W-40)/(rows.length);
+  var bars="", labels="";
+  for(var i=0;i<rows.length;i++){
+    var x=30+i*step;
+    var h1=Math.max(2,rows[i].inc/max*(H-padB-10)), h2=Math.max(2,rows[i].exp/max*(H-padB-10));
+    bars+='<rect x="'+(x)+'" y="'+(H-padB-h1)+'" width="'+bw+'" height="'+h1+'" rx="3" fill="#16a34a" opacity="0.9"><title>'+shortMonth(rows[i].m)+': przychód '+pln(rows[i].inc)+'</title></rect>';
+    bars+='<rect x="'+(x+bw+4)+'" y="'+(H-padB-h2)+'" width="'+bw+'" height="'+h2+'" rx="3" fill="#dc2626" opacity="0.85"><title>'+shortMonth(rows[i].m)+': obciążenia '+pln(rows[i].exp)+'</title></rect>';
+    labels+='<text x="'+(x+bw)+'" y="'+(H-6)+'" font-size="11" fill="#64748b" text-anchor="middle">'+shortMonth(rows[i].m)+'</text>';
+  }
+  return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">'+bars+labels+'</svg>';
+}
+
+// ---------- tabs ----------
+var TABS=[["pulpit","Pulpit"],["transakcje","Transakcje"],["budzety","Budżety"],["dane","Kategorie i dane"]];
+function renderTabs(){
+  var h="";
+  for(var i=0;i<TABS.length;i++)
+    h+='<button data-tab="'+TABS[i][0]+'" class="'+(activeTab===TABS[i][0]?"active":"")+'">'+TABS[i][1]+'</button>';
+  document.getElementById("tabs").innerHTML=h;
+}
+function catOptions(selKind, selected, subFilter){
+  var h="";
+  if(selKind!=="expense"){
+    h+='<optgroup label="Dochody">';
+    state.incomeCats.forEach(function(c){ h+='<option value="i:'+c.id+'"'+(selected==="i:"+c.id?" selected":"")+">"+esc(c.name)+(c.passive?" (Z/S)":"")+"</option>"; });
+    h+="</optgroup>";
+  }
+  if(selKind!=="income"){
+    state.groups.forEach(function(g){
+      var subs=subsOf(g.id).filter(subFilter||function(){return true;});
+      if(!subs.length) return;
+      h+='<optgroup label="'+esc(g.name)+'">';
+      subs.forEach(function(s){ h+='<option value="s:'+s.id+'"'+(selected==="s:"+s.id?" selected":"")+">"+esc(s.name)+"</option>"; });
+      h+="</optgroup>";
+    });
+  }
+  return h;
+}
+
+// ---------- pulpit ----------
+function renderPulpit(){
+  var z=zeroBudget(month), s=z.s, m=month;
+  var bilans=Math.round((s.income-s.expense)*100)/100;
+  var przeplyw=Math.round((s.income-s.expense-s.savings-s.rebalance)*100)/100;
+  var kk=kpi(m,"kk"), osz=kpi(m,"oszczednosci");
+  var zstable=[]; for(var n in s.passiveByCat) zstable.push({name:n,v:s.passiveByCat[n]});
+  zstable.sort(function(a,b){return b.v-a.v;});
+
+  var h='<div class="grid g3">';
+  h+='<div class="card"><h3>Środki do rozdysponowania</h3><div class="big">'+pln(z.srodki)+'</div>'
+    +'<div class="hint">Edytowalne; domyślnie przychód miesiąca: '+pln(z.income)+'</div>'
+    +'<input class="kpi-edit" data-kpi="srodki" data-init="1" value="'+(kpi(m,"srodki")!==null?kpi(m,"srodki"):"")+'" placeholder="'+pln(z.income)+'" size="10"></div>';
+  h+='<div class="card"><h3>Zaplanowane w budżecie</h3><div class="big">'+pln(z.plan)+'</div><div class="hint">Suma limitów wszystkich kategorii</div></div>';
+  h+='<div class="card"><h3>Pozostało do zaplanowania</h3><div class="big '+(z.left<0?"neg":"pos")+'">'+pln(z.left)+'</div><div class="hint">'+(z.left<0?"Zaplanowane ponad środki":"Środki bez przydziału")+'</div></div>';
+  h+="</div>";
+
+  h+='<div class="grid g3" style="margin-top:12px">';
+  h+='<div class="card"><h3>Bilans miesiąca</h3><div class="big '+(bilans<0?"neg":"pos")+'">'+pln(bilans)+'</div><div class="hint">Przychód minus wydatki (bez oszczędności i rebalancingu)</div></div>';
+  h+='<div class="card"><h3>Zmiana gotówki</h3><div class="big '+(przeplyw<0?"neg":"pos")+'">'+pln(przeplyw)+'</div><div class="hint">Przychód minus wydatki, oszczędności i rebalancing</div></div>';
+  h+='<div class="card"><h3>Założone wpływy</h3><div class="big">'+pln(z.wplyny)+'</div>'
+    +'<div class="hint">Plan wpływów; wykonanie: '+pln(z.income)+'</div>'
+    +'<input class="kpi-edit" data-kpi="wplyny" data-init="1" value="'+(kpi(m,"wplyny")!==null?kpi(m,"wplyny"):"")+'" placeholder="'+pln(z.wplyny)+'" size="10"></div>';
+  h+='<div class="card"><h3>Oszczędności i inwestycje (mies.)</h3><div class="big" style="color:var(--green)">'+pln(s.savings)+'</div><div class="hint">Realizacja celów oszczędnościowych</div></div>';
+  h+='<div class="card"><h3>Rebalancing (mies.)</h3><div class="big" style="color:var(--violet)">'+pln(s.rebalance)+'</div><div class="hint">Przepływy między kontami/portfelem</div></div>';
+  h+='<div class="card"><h3>Z/S ALL (dochód pasywny)</h3><div class="big" style="color:var(--blue)">'+pln(s.passive)+'</div>'
+    +'<div class="hint">'+(zstable.length? zstable.map(function(x){return esc(x.name)+": "+pln(x.v);}).join(" · ") : "brak zysków pasywnych w tym miesiącu")+'</div></div>';
+  h+='<div class="card"><h3>Stan karty kredytowej</h3><div class="big">'+(kk!==null?pln(kk):"-")+'</div>'
+    +'<div class="hint">Wpis ręczny</div>'
+    +'<input class="kpi-edit" data-kpi="kk" data-init="1" value="'+(kk!==null?kk:"")+'" placeholder="0,00" size="10"></div>';
+  h+='<div class="card"><h3>Oszczędności (stan)</h3><div class="big">'+(osz!==null?pln(osz):"-")+'</div>'
+    +'<div class="hint">Status kont oszczędnościowych; wpis ręczny</div>'
+    +'<input class="kpi-edit" data-kpi="oszczednosci" data-init="1" value="'+(osz!==null?osz:"")+'" placeholder="0,00" size="10"></div>';
+  h+="</div>";
+
+  h+='<div class="grid g2" style="margin-top:12px">';
+  h+='<div class="card"><h3>Trend 6 miesięcy</h3>'+trendSVG(month)
+    +'<div class="legend"><span><span class="dot" style="background:#16a34a"></span>przychody</span><span><span class="dot" style="background:#dc2626"></span>obciążenia (wydatki+oszcz.+rebal.)</span></div></div>';
+
+  var rows=budgetRows(m).filter(function(r){ return r.spent>0 && r.group.type==="expense"; });
+  rows.sort(function(a,b){ return b.spent-a.spent; });
+  var maxE=rows.length?rows[0].spent:1;
+  h+='<div class="card"><h3>Wydatki wg grup ('+monthLabel(m)+')</h3><div class="progress-list">';
+  if(!rows.length) h+='<div class="empty">Brak wydatków w tym miesiącu.</div>';
+  rows.forEach(function(r){
+    var pct=s.expense>0?Math.round(r.spent/s.expense*100):0;
+    h+='<div class="item"><div class="top"><span>'+esc(r.group.name)+'</span><span>'+pln(r.spent)+' <span class="mut">('+pct+'%)</span></span></div>'
+      +'<div class="bar"><div style="width:'+Math.min(100,r.spent/maxE*100)+'%;background:'+groupColor(r.group.id)+'"></div></div></div>';
+  });
+  h+="</div></div>";
+  h+="</div>";
+
+  var allRows=budgetRows(m).filter(function(r){ return r.plan>0||r.spent>0; });
+  h+='<div class="card" style="margin-top:12px"><h3>Realizacja planów wg grup ('+monthLabel(m)+')</h3><div class="progress-list">';
+  allRows.forEach(function(r){
+    var pct=r.plan>0?Math.round(r.spent/r.plan*100):(r.spent>0?100:0);
+    var col=pct>100?"var(--red)":(pct>=80?"var(--amber)":"var(--green)");
+    h+='<div class="item"><div class="top"><span>'+esc(r.group.name)+' <span class="badge t-'+r.group.type+'">'+TYPE_LABEL[r.group.type]+'</span></span>'
+      +'<span>'+pln(r.spent)+" / "+pln(r.plan)+' <span class="mut">('+pct+'%)</span></span></div>'
+      +'<div class="bar"><div style="width:'+Math.min(100,pct)+'%;background:'+col+'"></div></div></div>';
+  });
+  if(!allRows.length) h+='<div class="empty">Brak planów i wykonania w tym miesiącu.</div>';
+  h+="</div></div>";
+  return h;
+}
+
+// ---------- transakcje ----------
+function renderTransakcje(){
+  var h='<div class="card"><h3>Dodaj / edytuj transakcję</h3><form class="txn" id="txn-form">';
+  var kind=window.__txnKind||"expense";
+  h+='<label>Rodzaj<select id="f-kind"><option value="expense"'+(kind==="expense"?" selected":"")+'>Obciążenie (wydatek / oszczędności / rebalancing)</option><option value="income"'+(kind==="income"?" selected":"")+'>Dochód</option></select></label>';
+  h+='<label>Kategoria<select id="f-cat">'+catOptions(kind, window.__txnCat||null)+'</select></label>';
+  h+='<label>Data<input type="date" id="f-date" value="'+(window.__txnDate||month+"-01")+'" required></label>';
+  h+='<label>Kwota (zł)<input class="amount" id="f-amount" inputmode="decimal" placeholder="0,00" required></label>';
+  h+='<label>Opis<input id="f-note" placeholder="np. sklepowe"></label>';
+  h+='<button class="btn" type="submit">'+(editTxnId?"Zapisz zmiany":"Dodaj")+'</button>';
+  if(editTxnId) h+='<button class="btn sec" type="button" data-action="cancel-edit">Anuluj</button>';
+  h+="</form></div>";
+
+  var tx=txnsOf(month).slice().sort(function(a,b){ return a.date<b.date?1:(a.date>b.date?-1:0); });
+  h+='<div class="card" style="margin-top:12px"><h3>Transakcje: '+monthLabel(month)+' ('+tx.length+')</h3>';
+  if(!tx.length) h+='<div class="empty">Brak transakcji w tym miesiącu.</div>';
+  else{
+    h+='<div style="overflow-x:auto"><table><tr><th>Data</th><th>Kategoria</th><th>Opis</th><th class="num">Kwota</th><th></th></tr>';
+    tx.forEach(function(t){
+      var catName="", grpName="", color="#94a3b8";
+      if(t.kind==="income"){ var ic=incById(t.catId); catName=ic?ic.name:"?"; color="#16a34a"; }
+      else{ var sb=subById(t.catId); if(sb){ catName=sb.name; var g=groupById(sb.groupId); grpName=g?g.name:""; color=groupColor(sb.groupId); } }
+      h+="<tr><td>"+esc(t.date)+"</td>"
+        +"<td>"+(grpName?'<span class="dot" style="background:'+color+';margin-right:6px"></span><span class="mut">'+esc(grpName)+" · </span>":"")+esc(catName)+"</td>"
+        +"<td class='mut'>"+esc(t.note||"")+"</td>"
+        +'<td class="num '+(t.kind==="income"?"pos":"neg")+'">'+(t.kind==="income"?"+":"-")+pln(t.amount)+"</td>"
+        +'<td class="num"><button class="btn mini sec" data-action="edit-txn" data-id="'+t.id+'">Edytuj</button> '
+        +'<button class="btn mini danger" data-action="del-txn" data-id="'+t.id+'">Usuń</button></td></tr>';
+    });
+    h+="</table></div>";
+  }
+  h+="</div>";
+  return h;
+}
+
+// ---------- budżety ----------
+function renderBudzety(){
+  var m=month;
+  var h='<div class="card"><h3>Plan wpływów: '+monthLabel(m)+'</h3><table>'
+    +"<tr><th>Dochód</th><th class='num'>Plan (założone)</th><th class='num'>Wpłynęło</th><th class='num'>Różnica</th></tr>";
+  state.incomeCats.forEach(function(c){
+    var plan=incPlanOf(m,c.id), act=incSpentOf(m,c.id), diff=Math.round((act-plan)*100)/100;
+    h+="<tr><td>"+esc(c.name)+(c.passive?' <span class="badge Z">Z/S</span>':"")+"</td>"
+      +'<td class="num"><input class="amount" data-incplan="'+c.id+'" value="'+(plan?plan.toString().replace(".",","):"")+'" placeholder="0,00"></td>'
+      +'<td class="num">'+pln(act)+'</td><td class="num '+(diff>0?"pos":"mut")+'">'+pln(diff)+"</td></tr>";
+  });
+  h+="</table></div>";
+
+  budgetRows(m).forEach(function(r){
+    h+='<div class="card" style="margin-top:12px"><div class="grouphdr"><div><span class="dot" style="background:'+groupColor(r.group.id)+';margin-right:6px"></span>'+esc(r.group.name)+' <span class="badge t-'+r.group.type+'">'+TYPE_LABEL[r.group.type]+'</span></div>'
+      +'<div class="num">Plan: <b>'+pln(r.plan)+"</b> · Wykonanie: <b>"+pln(r.spent)+"</b> · Zostało: <b class='"+(r.left<0?"neg":"pos")+"'>"+pln(r.left)+"</b></div></div>";
+    h+='<div style="overflow-x:auto;margin-top:6px"><table><tr><th>Podkategoria</th><th>P/Z</th><th class="num">Plan</th><th class="num">Wykonanie</th><th class="num">Zostało</th></tr>';
+    r.subs.forEach(function(x){
+      var pct=x.plan>0?Math.round(x.spent/x.plan*100):(x.spent>0?100:0);
+      h+="<tr><td>"+esc(x.sub.name)+(x.sub.note?' <span class="mut" style="font-size:11px">('+esc(x.sub.note)+")</span>":"")+"</td>"
+        +"<td>"+(x.sub.pz?'<span class="badge '+x.sub.pz+'" title="'+(x.sub.pz==="P"?"Podstawowe (potrzeby)":"Zapasowe (chcenia)")+'">'+x.sub.pz+"</span>":'<span class="mut">-</span>')+"</td>"
+        +'<td class="num"><input class="amount" data-plan="'+x.sub.id+'" value="'+(x.plan?x.plan.toString().replace(".",","):"")+'" placeholder="0,00"></td>'
+        +'<td class="num">'+pln(x.spent)+' <span class="mut" style="font-size:11px">('+pct+"%)</span></td>"
+        +'<td class="num '+(x.left<0?"neg":"pos")+'">'+pln(x.left)+"</td></tr>";
+    });
+    h+="</table></div></div>";
+  });
+  return h;
+}
+
+// ---------- kategorie i dane ----------
+function renderDane(){
+  var h='<div class="card"><h3>Grupy kategorii</h3><table><tr><th>Nazwa</th><th>Typ</th><th class="num">Podkategorie</th><th></th></tr>';
+  state.groups.forEach(function(g){
+    var n=subsOf(g.id).length;
+    h+="<tr><td><input data-gname='"+g.id+"' value=\""+esc(g.name)+'" style="width:100%"></td>'
+      +'<td><select data-gtype="'+g.id+'">'
+      +["expense","savings","rebalance"].map(function(t){ return '<option value="'+t+'"'+(g.type===t?" selected":"")+">"+TYPE_LABEL[t]+"</option>"; }).join("")
+      +"</select></td>"
+      +'<td class="num mut">'+n+"</td>"
+      +'<td class="num">'+(n===0?'<button class="btn mini danger" data-action="del-group" data-id="'+g.id+'">Usuń</button>':"")+"</td></tr>";
+  });
+  h+="</table>";
+  h+='<div class="row" style="margin-top:10px"><input id="ng-name" placeholder="Nazwa nowej grupy" style="flex:1;min-width:160px">'
+    +'<select id="ng-type">'+["expense","savings","rebalance"].map(function(t){ return '<option value="'+t+'">'+TYPE_LABEL[t]+"</option>"; }).join("")+"</select>"
+    +'<button class="btn" data-action="add-group">Dodaj grupę</button></div></div>';
+
+  h+='<div class="card" style="margin-top:12px"><h3>Podkategorie</h3><div style="max-height:340px;overflow:auto"><table><tr><th>Nazwa</th><th>Grupa</th><th>P/Z</th><th>Notka</th><th></th></tr>';
+  state.subcats.forEach(function(s){
+    h+="<tr><td><input data-sname='"+s.id+"' value=\""+esc(s.name)+'" style="width:100%"></td>'
+      +'<td class="mut" style="font-size:12px">'+esc((groupById(s.groupId)||{name:"?"}).name)+"</td>"
+      +'<td><select data-spz="'+s.id+'"><option value="">-</option><option value="P"'+(s.pz==="P"?" selected":"")+'>P (podstawowe)</option><option value="Z"'+(s.pz==="Z"?" selected":"")+'>Z (zapasowe)</option></select></td>'
+      +'<td><input data-snote="'+s.id+'" value="'+esc(s.note||"")+'" style="width:100%"></td>'
+      +'<td class="num"><button class="btn mini danger" data-action="del-sub" data-id="'+s.id+'">Usuń</button></td></tr>';
+  });
+  h+="</table></div>";
+  h+='<div class="row" style="margin-top:10px"><select id="ns-group">'
+    +state.groups.map(function(g){ return '<option value="'+g.id+'">'+esc(g.name)+"</option>"; }).join("")
+    +'</select><input id="ns-name" placeholder="Nazwa nowej podkategorii" style="flex:1;min-width:140px">'
+    +'<select id="ns-pz"><option value="">bez flagi</option><option value="P">P</option><option value="Z">Z</option></select>'
+    +'<button class="btn" data-action="add-sub">Dodaj</button></div></div>';
+
+  h+='<div class="card" style="margin-top:12px"><h3>Kategorie dochodów</h3><table><tr><th>Nazwa</th><th>Pasywny (Z/S)</th><th></th></tr>';
+  state.incomeCats.forEach(function(c){
+    h+="<tr><td><input data-iname='"+c.id+"' value=\""+esc(c.name)+'" style="width:100%"></td>'
+      +'<td><input type="checkbox" data-ipassive="'+c.id+'"'+(c.passive?" checked":"")+"></td>"
+      +'<td class="num"><button class="btn mini danger" data-action="del-inc" data-id="'+c.id+'">Usuń</button></td></tr>';
+  });
+  h+="</table>";
+  h+='<div class="row" style="margin-top:10px"><input id="ni-name" placeholder="Nazwa nowego źródła dochodu" style="flex:1;min-width:160px">'
+    +'<label class="row" style="gap:4px;font-size:13px"><input type="checkbox" id="ni-passive"> pasywny (Z/S)</label>'
+    +'<button class="btn" data-action="add-inc">Dodaj</button></div></div>';
+
+  h+='<div class="card" style="margin-top:12px"><h3>Dane</h3><div class="row">'
+    +'<button class="btn" data-action="export">Eksportuj kopię (JSON)</button>'
+    +'<button class="btn sec" data-action="import">Wczytaj kopię (JSON)</button>'
+    +'<button class="btn danger" data-action="clear">Wyczyść wszystkie dane</button></div>'
+    +'<div class="hint" style="margin-top:8px">Dane zapisywane są w pamięci lokalnej tej przeglądarki. Zalecana regularna kopia JSON.</div></div>';
+  return h;
+}
+
+// ---------- główny render ----------
+function renderView(){
+  var el=document.getElementById("view"), h="";
+  if(activeTab==="pulpit") h=renderPulpit();
+  else if(activeTab==="transakcje") h=renderTransakcje();
+  else if(activeTab==="budzety") h=renderBudzety();
+  else h=renderDane();
+  el.innerHTML=h;
+}
+function renderAll(){
+  document.getElementById("month-label").textContent=monthLabel(month);
+  renderTabs(); renderView();
+}
+
+// ---------- akcje ----------
+function findTxn(id){ for(var i=0;i<state.txns.length;i++) if(state.txns[i].id===id) return state.txns[i]; return null; }
+function fillForm(t){
+  window.__txnKind=t.kind;
+  window.__txnCat=(t.kind==="income"?"i:":"s:")+t.catId;
+  window.__txnDate=t.date;
+  editTxnId=t.id;
+  activeTab="transakcje"; renderView();
+  var a=document.getElementById("f-amount"); if(a){ a.value=t.amount.toString().replace(".",","); a.focus(); }
+}
+function submitTxn(){
+  var kind=document.getElementById("f-kind").value;
+  var catRaw=document.getElementById("f-cat").value;
+  var date=document.getElementById("f-date").value;
+  var amount=parseAmount(document.getElementById("f-amount").value);
+  var note=document.getElementById("f-note").value.trim();
+  if(!catRaw||!date||amount<=0){ alert("Proszę podać kategorię, datę i kwotę większą od zera."); return; }
+  var catId=catRaw.slice(2), isIncome=catRaw.slice(0,2)==="i:";
+  if(isIncome!== (kind==="income")){ alert("Wybrana kategoria nie pasuje do rodzaju transakcji."); return; }
+  if(editTxnId){
+    var t=findTxn(editTxnId);
+    if(t){ t.kind=kind; t.catId=catId; t.date=date; t.amount=amount; t.note=note||null; }
+    editTxnId=null; window.__txnKind=null; window.__txnCat=null; window.__txnDate=null;
+  }else{
+    state.txns.push({id:uid(), date:date, kind:kind, catId:catId, amount:amount, note:note||null});
+  }
+  saveState(); renderView();
+}
+function exportJSON(){
+  var blob=new Blob([JSON.stringify(state,null,1)],{type:"application/json"});
+  var a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download="budzet-domowy-"+month+".json";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(a.href); },2000);
+}
+function importJSON(file){
+  var rd=new FileReader();
+  rd.onload=function(){
+    try{
+      var s=JSON.parse(rd.result);
+      if(!s||s.version!==2||!Array.isArray(s.groups)||!Array.isArray(s.subcats)||!Array.isArray(s.txns)) throw new Error("bad");
+      state=s; saveState(); month=state.month||month; renderAll();
+    }catch(e){ alert("Plik nie wygląda na kopię tej aplikacji (oczekiwano formatu v2)."); }
+  };
+  rd.readAsText(file);
+}
+
+// ---------- zdarzenia ----------
+document.getElementById("prev-month").addEventListener("click",function(){ month=addMonths(month,-1); editTxnId=null; renderAll(); });
+document.getElementById("next-month").addEventListener("click",function(){ month=addMonths(month,1); editTxnId=null; renderAll(); });
+document.getElementById("tabs").addEventListener("click",function(ev){
+  var b=ev.target.closest("button[data-tab]"); if(!b) return;
+  activeTab=b.getAttribute("data-tab"); renderTabs(); renderView();
+});
+document.getElementById("view").addEventListener("click",function(ev){
+  var el=ev.target.closest("[data-action]"); if(!el) return;
+  var a=el.getAttribute("data-action"), id=el.getAttribute("data-id");
+  if(a==="edit-txn"){ var t=findTxn(id); if(t) fillForm(t); }
+  else if(a==="del-txn"){ if(confirm("Usunąć tę transakcję?")){ state.txns=state.txns.filter(function(x){return x.id!==id;}); saveState(); renderView(); } }
+  else if(a==="cancel-edit"){ editTxnId=null; window.__txnKind=null; window.__txnCat=null; window.__txnDate=null; renderView(); }
+  else if(a==="add-group"){
+    var n=document.getElementById("ng-name").value.trim(), ty=document.getElementById("ng-type").value;
+    if(!n){ alert("Proszę podać nazwę grupy."); return; }
+    state.groups.push({id:"g-"+uid(), name:n, type:ty}); saveState(); renderView();
+  }
+  else if(a==="del-group"){ if(confirm("Usunąć grupę (możliwa tylko bez podkategorii)?")){ state.groups=state.groups.filter(function(g){return g.id!==id;}); saveState(); renderView(); } }
+  else if(a==="add-sub"){
+    var gid=document.getElementById("ns-group").value, sn=document.getElementById("ns-name").value.trim(), pz=document.getElementById("ns-pz").value;
+    if(!sn){ alert("Proszę podać nazwę podkategorii."); return; }
+    state.subcats.push({id:"s-"+uid(), groupId:gid, name:sn, pz:pz||null, note:null}); saveState(); renderView();
+  }
+  else if(a==="del-sub"){
+    var has=state.txns.some(function(t){ return t.catId===id; });
+    var msg=has?"Ta podkategoria ma transakcje. Usunąć ją razem z nimi?":"Usunąć podkategorię?";
+    if(confirm(msg)){
+      state.txns=state.txns.filter(function(t){ return t.catId!==id; });
+      state.subcats=state.subcats.filter(function(s){ return s.id!==id; });
+      for(var k in state.budgets){ if(k.endsWith("::sub:"+id)) delete state.budgets[k]; }
+      saveState(); renderView();
+    }
+  }
+  else if(a==="add-inc"){
+    var nn=document.getElementById("ni-name").value.trim(), pas=document.getElementById("ni-passive").checked;
+    if(!nn){ alert("Proszę podać nazwę źródła dochodu."); return; }
+    state.incomeCats.push({id:"i-"+uid(), name:nn, passive:pas}); saveState(); renderView();
+  }
+  else if(a==="del-inc"){
+    var hi=state.txns.some(function(t){ return t.catId===id; });
+    var mi=hi?"To źródło ma transakcje. Usunąć je razem z nimi?":"Usunąć źródło dochodu?";
+    if(confirm(mi)){
+      state.txns=state.txns.filter(function(t){ return t.catId!==id; });
+      state.incomeCats=state.incomeCats.filter(function(c){ return c.id!==id; });
+      for(var k2 in state.incomePlans){ if(k2.endsWith("::inc:"+id)) delete state.incomePlans[k2]; }
+      saveState(); renderView();
+    }
+  }
+  else if(a==="export"){ exportJSON(); }
+  else if(a==="import"){ document.getElementById("import-file").click(); }
+  else if(a==="clear"){
+    if(confirm("Usunąć WSZYSTKIE dane (transakcje, budżety, kategorie) i przywrócić stan początkowy?")){
+      try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
+      state=JSON.parse(JSON.stringify(SEED)); month=state.month||currentMonth(); editTxnId=null; renderAll();
+    }
+  }
+});
+document.getElementById("import-file").addEventListener("change",function(ev){
+  var f=ev.target.files[0]; if(f) importJSON(f); ev.target.value="";
+});
+document.getElementById("view").addEventListener("submit",function(ev){
+  if(ev.target && ev.target.id==="txn-form"){ ev.preventDefault(); submitTxn(); }
+});
+document.getElementById("view").addEventListener("change",function(ev){
+  var t=ev.target;
+  if(t.id==="f-kind"){ window.__txnKind=t.value; window.__txnCat=null; renderView(); return; }
+  var d;
+  if(t.hasAttribute && (d=t.getAttribute("data-plan"))){ setPlan(month,d,parseAmount(t.value)); renderView(); }
+  else if(t.hasAttribute && (d=t.getAttribute("data-incplan"))){ setIncPlan(month,d,parseAmount(t.value)); renderView(); }
+  else if(t.hasAttribute && (d=t.getAttribute("data-kpi"))){
+    var v=t.value.trim()?parseAmount(t.value):null;
+    kpi(month,d,v);
+    if(d==="srodki"||d==="wplyny"||d==="kk"||d==="oszczednosci") renderView();
+  }
+  else if(t.hasAttribute && (d=t.getAttribute("data-gname"))){ var g=groupById(d); if(g&&t.value.trim()){ g.name=t.value.trim(); saveState(); } }
+  else if(t.hasAttribute && (d=t.getAttribute("data-gtype"))){ var g2=groupById(d); if(g2){ g2.type=t.value; saveState(); renderView(); } }
+  else if(t.hasAttribute && (d=t.getAttribute("data-sname"))){ var s=subById(d); if(s&&t.value.trim()){ s.name=t.value.trim(); saveState(); } }
+  else if(t.hasAttribute && (d=t.getAttribute("data-spz"))){ var s2=subById(d); if(s2){ s2.pz=t.value||null; saveState(); renderView(); } }
+  else if(t.hasAttribute && (d=t.getAttribute("data-snote"))){ var s3=subById(d); if(s3){ s3.note=t.value.trim()||null; saveState(); } }
+  else if(t.hasAttribute && (d=t.getAttribute("data-iname"))){ var c=incById(d); if(c&&t.value.trim()){ c.name=t.value.trim(); saveState(); } }
+  else if(t.hasAttribute && (d=t.getAttribute("data-ipassive"))){ var c2=incById(d); if(c2){ c2.passive=t.checked; saveState(); } }
+});
+
+// ---------- start ----------
+state=loadState();
+if(!state){ state=JSON.parse(JSON.stringify(SEED)); saveState(); }
+month=(state.month&&state.month.length>=7)?state.month.slice(0,7):currentMonth();
+try{ if(!localStorage.getItem(STORAGE_KEY)) saveState(); }catch(e){ showStorageWarn(); }
+renderAll();
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("sw.js").catch(function(){});
+}
+</script>
+</body>
+</html>
