@@ -421,6 +421,21 @@ function cardInfo(){
   return null;
 }
 function cardStan(m){ var ci=cardInfo(); return ci?Math.round((spentOf(m,ci.sub.id)+ci.limit)*100)/100:null; }
+function nadplataOf(m){
+  for(var i=0;i<state.subcats.length;i++){ var sb=state.subcats[i]; if(/nadpłata\s*kredytu/i.test(sb.name)) return spentOf(m,sb.id); }
+  return 0;
+}
+function oszczCalc(m){
+  var ci=cardInfo(), saldo=ci?spentOf(m,ci.sub.id):0, s=sums(m);
+  return Math.round((saldo+s.rebalance+s.savings)*100)/100;
+}
+function oszczPoprz(m){
+  var man=kpi(m,"oszczpoprz");
+  if(man!==null) return man;
+  var pm=addMonths(m,-1);
+  if(txnsOf(pm).length) return oszczCalc(pm);
+  return null;
+}
 function defaultTxnDate(){
   var t=new Date(), td=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");
   return td.slice(0,7)===month ? td : month+"-01";
@@ -485,9 +500,12 @@ function catOptions(selKind, selected, subFilter){
 // ---------- pulpit ----------
 function renderPulpit(){
   var z=zeroBudget(month), s=z.s, m=month;
-  var bilans=Math.round((s.income-s.expense)*100)/100;
-  var przeplyw=Math.round((s.income-s.expense-s.savings-s.rebalance)*100)/100;
-  var osz=kpi(m,"oszczednosci"), ci=cardInfo();
+  var ci=cardInfo();
+  var oszcz=oszczCalc(m), nadp=nadplataOf(m);
+  var poprzMan=kpi(m,"oszczpoprz");
+  var poprzAuto=(poprzMan===null && txnsOf(addMonths(m,-1)).length)?oszczCalc(addMonths(m,-1)):null;
+  var poprz=(poprzMan!==null)?poprzMan:poprzAuto;
+  var bilans=(poprz!==null)?Math.round((oszcz-poprz+nadp)*100)/100:null;
   var zstable=[]; for(var n in s.passiveByCat) zstable.push({name:n,v:s.passiveByCat[n]});
   zstable.sort(function(a,b){return b.v-a.v;});
 
@@ -500,13 +518,14 @@ function renderPulpit(){
   h+="</div>";
 
   h+='<div class="grid g3" style="margin-top:12px">';
-  h+='<div class="card"><h3>Bilans miesiąca</h3><div class="big '+(bilans<0?"neg":"pos")+'">'+pln(bilans)+'</div><div class="hint">Przychód minus wydatki (bez oszczędności i rebalancingu)</div></div>';
-  h+='<div class="card"><h3>Zmiana gotówki</h3><div class="big '+(przeplyw<0?"neg":"pos")+'">'+pln(przeplyw)+'</div><div class="hint">Przychód minus wydatki, oszczędności i rebalancing</div></div>';
+  h+='<div class="card"><h3>Oszczędności</h3><div class="big" style="color:var(--green)">'+pln(oszcz)+'</div>'
+    +'<div class="hint">Nadpłata na karcie + Rebalancing – płynne środki + Oszczędności i inwestycje</div></div>';
+  h+='<div class="card"><h3>Bilans miesiąca</h3><div class="big '+(bilans===null?"":(bilans<0?"neg":"pos"))+'">'+(bilans===null?"-":pln(bilans))+'</div>'
+    +'<div class="hint">'+(poprz!==null?'Oszczędności minus stan z końca poprzedniego miesiąca plus Nadpłata kredytu':'Uzupełnij oszczędności z końca poprzedniego miesiąca w polu poniżej')+'</div>'
+    +'<input class="kpi-edit" data-kpi="oszczpoprz" data-init="1" value="'+(poprzMan!==null?poprzMan:"")+'" placeholder="'+(poprzAuto!==null?pln(poprzAuto):"0,00")+'" size="10"></div>';
   h+='<div class="card"><h3>Założone wpływy</h3><div class="big">'+pln(z.wplyny)+'</div>'
     +'<div class="hint">Plan wpływów; wykonanie: '+pln(z.income)+'</div>'
     +'<input class="kpi-edit" data-kpi="wplyny" data-init="1" value="'+(kpi(m,"wplyny")!==null?kpi(m,"wplyny"):"")+'" placeholder="'+pln(z.wplyny)+'" size="10"></div>';
-  h+='<div class="card"><h3>Oszczędności i inwestycje (mies.)</h3><div class="big" style="color:var(--green)">'+pln(s.savings)+'</div><div class="hint">Realizacja celów oszczędnościowych</div></div>';
-  h+='<div class="card"><h3>Rebalancing (mies.)</h3><div class="big" style="color:var(--violet)">'+pln(s.rebalance)+'</div><div class="hint">Przepływy między kontami/portfelem</div></div>';
   h+='<div class="card"><h3>Z/S ALL (dochód pasywny)</h3><div class="big" style="color:var(--blue)">'+pln(s.passive)+'</div>'
     +'<div class="hint">'+(zstable.length? zstable.map(function(x){return esc(x.name)+": "+pln(x.v);}).join(" · ") : "brak zysków pasywnych w tym miesiącu")+'</div></div>';
   if(ci){
@@ -515,9 +534,6 @@ function renderPulpit(){
       +'<div class="hint">Automatycznie: saldo kategorii + limit '+pln(ci.limit)+'. '
       +(saldo>0?'Nadpłata na karcie: '+pln(saldo):(saldo<0?'Kredyt wykorzystany: '+pln(-saldo):'Karta spłacona'))+'</div></div>';
   }
-  h+='<div class="card"><h3>Oszczędności (stan)</h3><div class="big">'+(osz!==null?pln(osz):"-")+'</div>'
-    +'<div class="hint">Status kont oszczędnościowych; wpis ręczny</div>'
-    +'<input class="kpi-edit" data-kpi="oszczednosci" data-init="1" value="'+(osz!==null?osz:"")+'" placeholder="0,00" size="10"></div>';
   h+="</div>";
 
   h+='<div class="grid g2" style="margin-top:12px">';
@@ -807,7 +823,7 @@ document.getElementById("view").addEventListener("change",function(ev){
   else if(t.hasAttribute && (d=t.getAttribute("data-kpi"))){
     var v=t.value.trim()?parseAmount(t.value):null;
     kpi(month,d,v);
-    if(d==="srodki"||d==="wplyny"||d==="oszczednosci") renderView();
+    if(d==="srodki"||d==="wplyny"||d==="oszczpoprz") renderView();
   }
   else if(t.hasAttribute && (d=t.getAttribute("data-gname"))){ var g=groupById(d); if(g&&t.value.trim()){ g.name=t.value.trim(); saveState(); } }
   else if(t.hasAttribute && (d=t.getAttribute("data-gtype"))){ var g2=groupById(d); if(g2){ g2.type=t.value; saveState(); renderView(); } }
