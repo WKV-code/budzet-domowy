@@ -1,5 +1,5 @@
 /* Budżet Domowy - service worker (offline cache-first) */
-var CACHE = "budzet-domowy-v5";
+var CACHE = "budzet-domowy-v6";
 var ASSETS = [
   "./",
   "./index.html",
@@ -24,6 +24,7 @@ self.addEventListener("activate", function (e) {
 
 self.addEventListener("fetch", function (e) {
   if (e.request.method !== "GET") return;
+  if (e.request.url.indexOf("https://api.github.com/") === 0) return; // API synchronizacji: zawsze z sieci, nigdy z cache
   e.respondWith(
     caches.match(e.request).then(function (hit) {
       if (hit) return hit;

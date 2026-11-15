@@ -346,6 +346,7 @@ function loadState(){
 function saveState(){
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch(e){ showStorageWarn(); }
+  try{ var _m=syncLoadMeta(); _m.dirty=true; syncSaveMeta(_m); }catch(e){}
 }
 function showStorageWarn(){
   var w=document.getElementById("storage-warn");
@@ -681,6 +682,23 @@ function renderDane(){
     +'<button class="btn sec" data-action="import">Wczytaj kopię (JSON)</button>'
     +'<button class="btn danger" data-action="clear">Wyczyść wszystkie dane</button></div>'
     +'<div class="hint" style="margin-top:8px">Dane zapisywane są w pamięci lokalnej tej przeglądarki. Zalecana regularna kopia JSON.</div></div>';
+
+  var cfgS=syncLoadCfg(), metaS=syncLoadMeta();
+  h+='<div class="card" style="margin-top:12px"><h3>Synchronizacja między urządzeniami (GitHub)</h3>'
+    +'<div class="hint" style="margin-bottom:8px">Dane są szyfrowane hasłem (AES-GCM) jeszcze na urządzeniu i jako nieczytelny szyfr trafiają do prywatnego repozytorium GitHub. Ten sam token i hasło należy wpisać na każdym urządzeniu.</div>'
+    +'<div style="display:grid;gap:6px;max-width:480px">'
+    +'<label>Repozytorium (użytkownik/repo)<input id="sync-repo" placeholder="np. WKV-code/budzet-sync" value="'+esc(cfgS?cfgS.repo:"")+'"></label>'
+    +'<label>Token dostępowy GitHub (fine-grained)<input id="sync-token" type="password" placeholder="github_pat_..." value="'+esc(cfgS?cfgS.token:"")+'"></label>'
+    +'<label>Hasło szyfrowania<input id="sync-pass" type="password" placeholder="min. 6 znaków" value="'+esc(cfgS?cfgS.pass:"")+'"></label></div>'
+    +'<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-top:8px"><input type="checkbox" id="sync-auto"'+((!cfgS||cfgS.auto)?" checked":"")+'> przy otwarciu aplikacji automatycznie pobierz dane z serwera</label>'
+    +'<div class="row" style="margin-top:10px">'
+    +'<button class="btn" data-action="sync-push"'+(syncBusy?' disabled':'')+'>Wyślij na serwer</button>'
+    +'<button class="btn sec" data-action="sync-pull"'+(syncBusy?' disabled':'')+'>Pobierz z serwera</button>'
+    +'<button class="btn sec" data-action="sync-save"'+(syncBusy?' disabled':'')+'>Zapisz ustawienia</button>'
+    +'<button class="btn danger" data-action="sync-clear"'+(syncBusy?' disabled':'')+'>Usuń</button></div>'
+    +(syncMsg?'<div class="hint" style="margin-top:8px">'+esc(syncMsg)+'</div>':'')
+    +((metaS&&(metaS.lastPush||metaS.lastPull))?'<div class="hint" style="margin-top:4px">Ostatnie wysłanie: '+(metaS.lastPush?syncFmtDate(metaS.lastPush):"-")+'; pobranie: '+(metaS.lastPull?syncFmtDate(metaS.lastPull):"-")+(metaS.dirty?'; <b>są niewysłane lokalne zmiany</b>':'')+'.</div>':'')
+    +'</div>';
   return h;
 }
 
@@ -746,6 +764,178 @@ function importJSON(file){
   rd.readAsText(file);
 }
 
+// ---------- synchronizacja (GitHub, szyfrowana) ----------
+var SYNC_CFG_KEY="budzet-sync-cfg", SYNC_META_KEY="budzet-sync-meta", SYNC_FILE="budzet.dat";
+var syncMsg=null, syncBusy=false;
+
+function syncLoadCfg(){
+  try{ var r=localStorage.getItem(SYNC_CFG_KEY); if(r){ var c=JSON.parse(r); if(c&&c.repo) return c; } }catch(e){}
+  return null;
+}
+function syncSaveCfg(c){ try{ localStorage.setItem(SYNC_CFG_KEY, JSON.stringify(c)); return true; }catch(e){ return false; } }
+function syncLoadMeta(){
+  try{ var r=localStorage.getItem(SYNC_META_KEY); if(r){ var m=JSON.parse(r); if(m) return m; } }catch(e){}
+  return { dirty:false, lastPush:null, lastPull:null, lastRemoteAt:null };
+}
+function syncSaveMeta(m){ try{ localStorage.setItem(SYNC_META_KEY, JSON.stringify(m)); }catch(e){} }
+function syncFmtDate(iso){
+  try{
+    var d=new Date(iso);
+    var p=function(x){ return ("0"+x).slice(-2); };
+    return p(d.getDate())+"."+p(d.getMonth()+1)+"."+d.getFullYear()+" "+p(d.getHours())+":"+p(d.getMinutes());
+  }catch(e){ return String(iso); }
+}
+
+// --- kryptografia (WebCrypto: PBKDF2 + AES-GCM) ---
+function syncB64Enc(u8){
+  var s="", CH=0x8000;
+  for(var i=0;i<u8.length;i+=CH) s+=String.fromCharCode.apply(null, u8.subarray(i, i+CH));
+  return btoa(s);
+}
+function syncB64Dec(str){
+  var bin=atob(str), u8=new Uint8Array(bin.length);
+  for(var j=0;j<bin.length;j++) u8[j]=bin.charCodeAt(j);
+  return u8;
+}
+function syncKey(pass, salt){
+  return crypto.subtle.importKey("raw", new TextEncoder().encode(pass), {name:"PBKDF2"}, false, ["deriveKey"]).then(function(k){
+    return crypto.subtle.deriveKey({name:"PBKDF2", salt:salt, iterations:100000, hash:"SHA-256"}, k, {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]);
+  });
+}
+function syncEncrypt(text, pass){
+  var salt=crypto.getRandomValues(new Uint8Array(16));
+  var iv=crypto.getRandomValues(new Uint8Array(12));
+  return syncKey(pass, salt).then(function(key){
+    return crypto.subtle.encrypt({name:"AES-GCM", iv:iv}, key, new TextEncoder().encode(text));
+  }).then(function(ct){
+    return "BS1:"+syncB64Enc(salt)+"."+syncB64Enc(iv)+"."+syncB64Enc(new Uint8Array(ct));
+  });
+}
+function syncDecrypt(payload, pass){
+  if(!payload || payload.indexOf("BS1:")!==0) return Promise.reject(new Error("Nieznany format zaszyfrowanych danych."));
+  var parts=payload.slice(4).split(".");
+  if(parts.length!==3) return Promise.reject(new Error("Uszkodzony plik synchronizacji."));
+  var salt=syncB64Dec(parts[0]), iv=syncB64Dec(parts[1]), ct=syncB64Dec(parts[2]);
+  return syncKey(pass, salt).then(function(key){
+    return crypto.subtle.decrypt({name:"AES-GCM", iv:iv}, key, ct);
+  }).then(function(pt){
+    return new TextDecoder().decode(pt);
+  }).catch(function(){
+    throw new Error("Nie udało się odszyfrować: błędne hasło szyfrowania albo uszkodzone dane.");
+  });
+}
+
+// --- GitHub Contents API ---
+function syncHeaders(cfg){
+  return { "Authorization":"Bearer "+cfg.token, "Accept":"application/vnd.github+json",
+           "X-GitHub-Api-Version":"2022-11-28", "Content-Type":"application/json" };
+}
+function syncUrl(cfg){ return "https://api.github.com/repos/"+cfg.repo+"/contents/"+SYNC_FILE; }
+function ghGetFile(cfg){
+  return fetch(syncUrl(cfg)+"?ref=main&t="+Date.now(), { headers:syncHeaders(cfg), cache:"no-store" }).then(function(res){
+    if(res.status===404) return null;
+    if(!res.ok) return res.text().then(function(t){ throw new Error("GitHub "+res.status+": "+t.slice(0,180)); });
+    return res.json();
+  }).then(function(j){
+    if(!j) return { found:false };
+    return { found:true, sha:j.sha, payload:atob((j.content||"").replace(/\s/g,"")) };
+  });
+}
+function ghPutFile(cfg, payloadStr, sha){
+  var body={ message:"budzet-domowy sync "+new Date().toISOString(), branch:"main", content:btoa(payloadStr) };
+  if(sha) body.sha=sha;
+  return fetch(syncUrl(cfg), { method:"PUT", headers:syncHeaders(cfg), body:JSON.stringify(body) }).then(function(res){
+    if(!res.ok) return res.text().then(function(t){ throw new Error("GitHub "+res.status+": "+t.slice(0,180)); });
+    return res.json();
+  });
+}
+
+// --- operacje ---
+function syncReadCfgInputs(){
+  return {
+    repo:(document.getElementById("sync-repo").value||"").trim(),
+    token:(document.getElementById("sync-token").value||"").trim(),
+    pass:document.getElementById("sync-pass").value||"",
+    auto:(document.getElementById("sync-auto")||{}).checked!==false
+  };
+}
+function syncValidateCfg(c){
+  if(!c.repo || c.repo.indexOf("/")<1){ alert("Proszę podać repozytorium w formacie użytkownik/repo, np. WKV-code/budzet-sync (repozytorium musi być prywatne)."); return false; }
+  if(!c.token || c.token.length<20){ alert("Proszę podać token dostępowy GitHub (github.com → Settings → Developer settings → Fine-grained tokens)."); return false; }
+  if(!c.pass || c.pass.length<6){ alert("Hasło szyfrowania musi mieć co najmniej 6 znaków."); return false; }
+  return true;
+}
+function syncStatus(msg){ syncMsg=msg; try{ renderView(); }catch(e){} }
+
+function syncPush(){
+  var c=syncReadCfgInputs();
+  if(!syncValidateCfg(c)) return Promise.resolve(false);
+  syncSaveCfg(c);
+  syncBusy=true; syncStatus("Wysyłanie na serwer...");
+  var payload={ magic:"BUDZETSYNC", v:1, updatedAt:new Date().toISOString(), data:null };
+  return syncEncrypt(JSON.stringify(state), c.pass).then(function(enc){
+    payload.data=enc;
+    return ghGetFile(c).then(function(g){ return ghPutFile(c, JSON.stringify(payload), (g&&g.found)?g.sha:null); });
+  }).then(function(){
+    var m=syncLoadMeta(); m.dirty=false; m.lastPush=payload.updatedAt; m.lastRemoteAt=payload.updatedAt; syncSaveMeta(m);
+    syncStatus("Wysłano na serwer ("+syncFmtDate(payload.updatedAt)+"). To urządzenie ma najnowszą wersję danych.");
+    return true;
+  }).catch(function(err){
+    syncStatus("Wysyłanie nie powiodło się: "+((err&&err.message)?err.message:String(err)));
+    return false;
+  }).then(function(r){ syncBusy=false; try{ renderView(); }catch(e){} return r; });
+}
+
+function syncPull(auto){
+  var c;
+  if(auto){
+    c=syncLoadCfg();
+    if(!c || !c.token || !c.pass || !c.auto) return Promise.resolve(null);
+  }else{
+    c=syncReadCfgInputs();
+    if(!syncValidateCfg(c)) return Promise.resolve(false);
+    syncSaveCfg(c);
+  }
+  syncBusy=true;
+  if(!auto) syncStatus("Pobieranie z serwera...");
+  var m=syncLoadMeta();
+  return ghGetFile(c).then(function(g){
+    if(!g || !g.found){
+      if(!auto) syncStatus("Na serwerze nie ma jeszcze danych. Proszę najpierw użyć przycisku \u201eWyślij na serwer\u201d.");
+      return null;
+    }
+    var payload;
+    try{ payload=JSON.parse(g.payload); }catch(e){ throw new Error("Plik na serwerze ma nieprawidłowy format."); }
+    if(!payload || payload.magic!=="BUDZETSYNC") throw new Error("Plik na serwerze nie wygląda na kopię synchronizacji tej aplikacji.");
+    if(payload.updatedAt && m.lastRemoteAt && payload.updatedAt<=m.lastRemoteAt){
+      if(!auto) syncStatus("Brak nowych danych na serwerze (wersja z "+syncFmtDate(payload.updatedAt)+").");
+      return null;
+    }
+    if(m.dirty && payload.updatedAt!==m.lastRemoteAt){
+      if(auto){
+        syncStatus("Synchronizacja wstrzymana: na serwerze jest nowsza wersja, ale to urządzenie ma niewysłane lokalne zmiany. Proszę rozstrzygnąć ręcznie: Dane → Synchronizacja.");
+        return null;
+      }
+      if(!confirm("Pobranie z serwera nadpisze lokalne dane, \u0142\u0105cznie z niewysłanymi zmianami tego urządzenia.\n\nKontynuować?")){ syncStatus("Pobranie anulowane."); return null; }
+    }
+    return syncDecrypt(payload.data, c.pass).then(function(txt){
+      var s;
+      try{ s=JSON.parse(txt); }catch(e){ throw new Error("Odszyfrowane dane nie są poprawnym JSON-em."); }
+      if(!s || s.version!==2 || !Array.isArray(s.groups) || !Array.isArray(s.txns)) throw new Error("Odszyfrowane dane nie są zgodne z formatem aplikacji (v2).");
+      state=s; month=(state.month&&state.month.length>=7)?state.month.slice(0,7):currentMonth(); editTxnId=null;
+      saveState();
+      var m2=syncLoadMeta(); m2.dirty=false; m2.lastPull=new Date().toISOString(); m2.lastRemoteAt=payload.updatedAt; syncSaveMeta(m2);
+      syncStatus((auto?"Zaktualizowano dane z serwera":"Pobrano dane z serwera")+" (wersja z "+syncFmtDate(payload.updatedAt)+").");
+      return true;
+    });
+  }).catch(function(err){
+    var msg=(err&&err.message)?err.message:String(err);
+    if(auto && /fetch|network|load failed/i.test(msg)) return false; // offline przy starcie: cisza
+    syncStatus((auto?"Autosynchronizacja nie powiodła się: ":(/fetch|network|load failed/i.test(msg)?"Brak połączenia z internetem: ":"Pobieranie nie powiodło się: "))+msg);
+    return false;
+  }).then(function(r){ syncBusy=false; try{ renderView(); }catch(e){} return r; });
+}
+
 // ---------- zdarzenia ----------
 document.getElementById("prev-month").addEventListener("click",function(){ month=addMonths(month,-1); editTxnId=null; renderAll(); });
 document.getElementById("next-month").addEventListener("click",function(){ month=addMonths(month,1); editTxnId=null; renderAll(); });
@@ -801,6 +991,18 @@ document.getElementById("view").addEventListener("click",function(ev){
   }
   else if(a==="export"){ exportJSON(); }
   else if(a==="import"){ document.getElementById("import-file").click(); }
+  else if(a==="sync-save"){
+    var sc=syncReadCfgInputs();
+    if(syncValidateCfg(sc)){ syncSaveCfg(sc); syncStatus("Ustawienia synchronizacji zapisane."); }
+  }
+  else if(a==="sync-push"){ syncPush(); }
+  else if(a==="sync-pull"){ syncPull(false); }
+  else if(a==="sync-clear"){
+    if(confirm("Usunąć ustawienia synchronizacji z tego urządzenia (token i hasło)?\n\nDane lokalne i dane na serwerze pozostają bez zmian.")){
+      try{ localStorage.removeItem(SYNC_CFG_KEY); }catch(e){}
+      syncMsg=null; renderView();
+    }
+  }
   else if(a==="clear"){
     if(confirm("Usunąć WSZYSTKIE dane (transakcje, budżety, kategorie) i przywrócić stan początkowy?")){
       try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
@@ -839,7 +1041,15 @@ state=loadState();
 if(!state){ state=JSON.parse(JSON.stringify(SEED)); saveState(); }
 month=(state.month&&state.month.length>=7)?state.month.slice(0,7):currentMonth();
 try{ if(!localStorage.getItem(STORAGE_KEY)) saveState(); }catch(e){ showStorageWarn(); }
+try{
+  // świeże urządzenie (stan = przykładowy seed) nie ma lokalnych zmian do stracenia
+  if(JSON.stringify(state)===JSON.stringify(SEED)){
+    var _m0=syncLoadMeta();
+    if(!_m0.lastPush && !_m0.lastPull){ _m0.dirty=false; syncSaveMeta(_m0); }
+  }
+}catch(e){}
 renderAll();
+setTimeout(function(){ syncPull(true); }, 400);
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   navigator.serviceWorker.register("sw.js").catch(function(){});
 }
