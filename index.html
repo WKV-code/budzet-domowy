@@ -327,7 +327,7 @@ function currentMonth(){ var d=new Date(); return d.getFullYear()+"-"+String(d.g
 function addMonths(m,delta){ var p=m.split("-"),y=+p[0],mm=+p[1]+delta; while(mm<1){mm+=12;y--;} while(mm>12){mm-=12;y++;} return y+"-"+String(mm).padStart(2,"0"); }
 function monthLabel(m){ var p=m.split("-"); var s=new Intl.DateTimeFormat("pl-PL",{month:"long",year:"numeric"}).format(new Date(+p[0],+p[1]-1,1)); return s.charAt(0).toUpperCase()+s.slice(1); }
 function shortMonth(m){ var p=m.split("-"); return new Intl.DateTimeFormat("pl-PL",{month:"short"}).format(new Date(+p[0],+p[1]-1,1)); }
-function parseAmount(v){ v=String(v||"").replace(/\s/g,"").replace(",","."); var n=parseFloat(v); return isNaN(n)?0:Math.round(n*100)/100; }
+function parseAmount(v){ v=String(v||"").replace(/\s/g,"").replace(/−/g,"-").replace(",","."); var n=parseFloat(v); return isNaN(n)?0:Math.round(n*100)/100; }
 
 // ---------- stan ----------
 var state, month, activeTab="pulpit", editTxnId=null;
@@ -558,7 +558,7 @@ function renderTransakcje(){
   h+='<label>Rodzaj<select id="f-kind"><option value="expense"'+(kind==="expense"?" selected":"")+'>Obciążenie (wydatek / oszczędności / rebalancing)</option><option value="income"'+(kind==="income"?" selected":"")+'>Dochód</option></select></label>';
   h+='<label>Kategoria<select id="f-cat">'+catOptions(kind, window.__txnCat||null)+'</select></label>';
   h+='<label>Data<input type="date" id="f-date" value="'+(window.__txnDate||defaultTxnDate())+'" required></label>';
-  h+='<label>Kwota (zł)<input class="amount" id="f-amount" inputmode="decimal" placeholder="0,00" required></label>';
+  h+='<label>Kwota (zł)<span style="display:inline-flex;gap:6px;align-items:center"><input class="amount" id="f-amount" inputmode="decimal" placeholder="0,00" required><button type="button" class="btn mini sec" data-action="toggle-sign" title="Zmień znak kwoty: ujemna = rozchód z aktywu (np. karta)">±</button></span></label>';
   h+='<label>Opis<input id="f-note" placeholder="np. sklepowe"></label>';
   h+='<button class="btn" type="submit">'+(editTxnId?"Zapisz zmiany":"Dodaj")+'</button>';
   if(editTxnId) h+='<button class="btn sec" type="button" data-action="cancel-edit">Anuluj</button>';
@@ -743,6 +743,10 @@ document.getElementById("view").addEventListener("click",function(ev){
   if(a==="edit-txn"){ var t=findTxn(id); if(t) fillForm(t); }
   else if(a==="del-txn"){ if(confirm("Usunąć tę transakcję?")){ state.txns=state.txns.filter(function(x){return x.id!==id;}); saveState(); renderView(); } }
   else if(a==="cancel-edit"){ editTxnId=null; window.__txnKind=null; window.__txnCat=null; window.__txnDate=null; renderView(); }
+  else if(a==="toggle-sign"){
+    var ta=document.getElementById("f-amount");
+    if(ta){ var tv=ta.value.trim(); ta.value=(tv.charAt(0)==="-")?tv.slice(1):(tv?"-"+tv:tv); ta.focus(); }
+  }
   else if(a==="add-group"){
     var n=document.getElementById("ng-name").value.trim(), ty=document.getElementById("ng-type").value;
     if(!n){ alert("Proszę podać nazwę grupy."); return; }
