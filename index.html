@@ -407,6 +407,24 @@ function incSpentOf(m,incId){
   for(var i=0;i<tx.length;i++) if(tx[i].kind==="income" && tx[i].catId===incId) t+=tx[i].amount;
   return Math.round(t*100)/100;
 }
+function cardInfo(){
+  var i,s;
+  for(i=0;i<state.subcats.length;i++){ s=state.subcats[i]; if(s.cardLimit!=null) return {sub:s, limit:+s.cardLimit}; }
+  for(i=0;i<state.subcats.length;i++){
+    s=state.subcats[i];
+    if(/karta\s*kredytowa/i.test(s.name)){
+      var mm=s.name.match(/limit\s+([0-9][0-9\s.,]*)/i), lim=mm?parseAmount(mm[1]):1000;
+      if(!lim||lim<=0) lim=1000;
+      return {sub:s, limit:lim};
+    }
+  }
+  return null;
+}
+function cardStan(m){ var ci=cardInfo(); return ci?Math.round((spentOf(m,ci.sub.id)+ci.limit)*100)/100:null; }
+function defaultTxnDate(){
+  var t=new Date(), td=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");
+  return td.slice(0,7)===month ? td : month+"-01";
+}
 function zeroBudget(m){
   var s=sums(m);
   var planTotal=state.subcats.reduce(function(a,x){ return a+planOf(m,x.id); },0);
@@ -469,7 +487,7 @@ function renderPulpit(){
   var z=zeroBudget(month), s=z.s, m=month;
   var bilans=Math.round((s.income-s.expense)*100)/100;
   var przeplyw=Math.round((s.income-s.expense-s.savings-s.rebalance)*100)/100;
-  var kk=kpi(m,"kk"), osz=kpi(m,"oszczednosci");
+  var osz=kpi(m,"oszczednosci"), ci=cardInfo();
   var zstable=[]; for(var n in s.passiveByCat) zstable.push({name:n,v:s.passiveByCat[n]});
   zstable.sort(function(a,b){return b.v-a.v;});
 
@@ -491,9 +509,12 @@ function renderPulpit(){
   h+='<div class="card"><h3>Rebalancing (mies.)</h3><div class="big" style="color:var(--violet)">'+pln(s.rebalance)+'</div><div class="hint">Przepływy między kontami/portfelem</div></div>';
   h+='<div class="card"><h3>Z/S ALL (dochód pasywny)</h3><div class="big" style="color:var(--blue)">'+pln(s.passive)+'</div>'
     +'<div class="hint">'+(zstable.length? zstable.map(function(x){return esc(x.name)+": "+pln(x.v);}).join(" · ") : "brak zysków pasywnych w tym miesiącu")+'</div></div>';
-  h+='<div class="card"><h3>Stan karty kredytowej</h3><div class="big">'+(kk!==null?pln(kk):"-")+'</div>'
-    +'<div class="hint">Wpis ręczny</div>'
-    +'<input class="kpi-edit" data-kpi="kk" data-init="1" value="'+(kk!==null?kk:"")+'" placeholder="0,00" size="10"></div>';
+  if(ci){
+    var kkStan=cardStan(m), saldo=Math.round((kkStan-ci.limit)*100)/100;
+    h+='<div class="card"><h3>Stan karty kredytowej</h3><div class="big">'+pln(kkStan)+'</div>'
+      +'<div class="hint">Automatycznie: saldo kategorii + limit '+pln(ci.limit)+'. '
+      +(saldo>0?'Nadpłata na karcie: '+pln(saldo):(saldo<0?'Kredyt wykorzystany: '+pln(-saldo):'Karta spłacona'))+'</div></div>';
+  }
   h+='<div class="card"><h3>Oszczędności (stan)</h3><div class="big">'+(osz!==null?pln(osz):"-")+'</div>'
     +'<div class="hint">Status kont oszczędnościowych; wpis ręczny</div>'
     +'<input class="kpi-edit" data-kpi="oszczednosci" data-init="1" value="'+(osz!==null?osz:"")+'" placeholder="0,00" size="10"></div>';
@@ -536,7 +557,7 @@ function renderTransakcje(){
   var kind=window.__txnKind||"expense";
   h+='<label>Rodzaj<select id="f-kind"><option value="expense"'+(kind==="expense"?" selected":"")+'>Obciążenie (wydatek / oszczędności / rebalancing)</option><option value="income"'+(kind==="income"?" selected":"")+'>Dochód</option></select></label>';
   h+='<label>Kategoria<select id="f-cat">'+catOptions(kind, window.__txnCat||null)+'</select></label>';
-  h+='<label>Data<input type="date" id="f-date" value="'+(window.__txnDate||month+"-01")+'" required></label>';
+  h+='<label>Data<input type="date" id="f-date" value="'+(window.__txnDate||defaultTxnDate())+'" required></label>';
   h+='<label>Kwota (zł)<input class="amount" id="f-amount" inputmode="decimal" placeholder="0,00" required></label>';
   h+='<label>Opis<input id="f-note" placeholder="np. sklepowe"></label>';
   h+='<button class="btn" type="submit">'+(editTxnId?"Zapisz zmiany":"Dodaj")+'</button>';
@@ -552,10 +573,11 @@ function renderTransakcje(){
       var catName="", grpName="", color="#94a3b8";
       if(t.kind==="income"){ var ic=incById(t.catId); catName=ic?ic.name:"?"; color="#16a34a"; }
       else{ var sb=subById(t.catId); if(sb){ catName=sb.name; var g=groupById(sb.groupId); grpName=g?g.name:""; color=groupColor(sb.groupId); } }
+      var sa=t.kind==="income"?t.amount:-t.amount;
       h+="<tr><td>"+esc(t.date)+"</td>"
         +"<td>"+(grpName?'<span class="dot" style="background:'+color+';margin-right:6px"></span><span class="mut">'+esc(grpName)+" · </span>":"")+esc(catName)+"</td>"
         +"<td class='mut'>"+esc(t.note||"")+"</td>"
-        +'<td class="num '+(t.kind==="income"?"pos":"neg")+'">'+(t.kind==="income"?"+":"-")+pln(t.amount)+"</td>"
+        +'<td class="num '+(sa>=0?"pos":"neg")+'">'+(sa>=0?"+":"-")+pln(Math.abs(sa))+"</td>"
         +'<td class="num"><button class="btn mini sec" data-action="edit-txn" data-id="'+t.id+'">Edytuj</button> '
         +'<button class="btn mini danger" data-action="del-txn" data-id="'+t.id+'">Usuń</button></td></tr>';
     });
@@ -676,7 +698,8 @@ function submitTxn(){
   var date=document.getElementById("f-date").value;
   var amount=parseAmount(document.getElementById("f-amount").value);
   var note=document.getElementById("f-note").value.trim();
-  if(!catRaw||!date||amount<=0){ alert("Proszę podać kategorię, datę i kwotę większą od zera."); return; }
+  if(!catRaw||!date||amount===0){ alert("Proszę podać kategorię, datę i kwotę różną od zera."); return; }
+  if(kind==="income"&&amount<0){ alert("Kwota dochodu nie może być ujemna. Ujemne kwoty są dostępne dla obciążeń (np. rozchód z karty)."); return; }
   var catId=catRaw.slice(2), isIncome=catRaw.slice(0,2)==="i:";
   if(isIncome!== (kind==="income")){ alert("Wybrana kategoria nie pasuje do rodzaju transakcji."); return; }
   if(editTxnId){
@@ -780,7 +803,7 @@ document.getElementById("view").addEventListener("change",function(ev){
   else if(t.hasAttribute && (d=t.getAttribute("data-kpi"))){
     var v=t.value.trim()?parseAmount(t.value):null;
     kpi(month,d,v);
-    if(d==="srodki"||d==="wplyny"||d==="kk"||d==="oszczednosci") renderView();
+    if(d==="srodki"||d==="wplyny"||d==="oszczednosci") renderView();
   }
   else if(t.hasAttribute && (d=t.getAttribute("data-gname"))){ var g=groupById(d); if(g&&t.value.trim()){ g.name=t.value.trim(); saveState(); } }
   else if(t.hasAttribute && (d=t.getAttribute("data-gtype"))){ var g2=groupById(d); if(g2){ g2.type=t.value; saveState(); renderView(); } }
