@@ -335,7 +335,7 @@ var state, month, activeTab="pulpit", editTxnId=null;
 function loadState(){
   try{
     var raw = localStorage.getItem(STORAGE_KEY);
-    if(raw){ var s=JSON.parse(raw); if(s && s.version===2) return s; }
+    if(raw){ var s=JSON.parse(raw); if(s && s.version===2){ migrateLiquid(s); return s; } }
     if(raw && localStorage.getItem("budzet-domowy-html-v1")){
       // stara wersja (v1) nie jest zgodna z modelem; zaczynamy od danych z arkusza
       return JSON.parse(JSON.stringify(SEED));
@@ -472,7 +472,7 @@ function trendSVG(m){
 }
 
 // ---------- tabs ----------
-var TABS=[["pulpit","Pulpit"],["transakcje","Transakcje"],["budzety","Budżety"],["dane","Kategorie i dane"]];
+var TABS=[["pulpit","Pulpit"],["transakcje","Transakcje"],["budzety","Budżety"],["plynne","Płynne środki"],["dane","Kategorie i dane"]];
 function renderTabs(){
   var h="";
   for(var i=0;i<TABS.length;i++)
@@ -646,6 +646,93 @@ function renderBudzety(){
   return h;
 }
 
+// ---------- płynne środki na koniec poprzedniego miesiąca ----------
+function migrateLiquid(s){
+  if(!s) return;
+  if(s.liquid && Array.isArray(s.liquid.positions) && s.liquid.manual) return;
+  var pos=[];
+  function addByGroupType(ty){
+    s.groups.forEach(function(g){
+      if(g.type!==ty) return;
+      s.subcats.forEach(function(sb){ if(sb.groupId===g.id) pos.push({id:"l-"+sb.id, name:sb.name, subId:sb.id}); });
+    });
+  }
+  addByGroupType("rebalance");
+  addByGroupType("savings");
+  var ci=null, i;
+  for(i=0;i<s.subcats.length;i++){ if(s.subcats[i].cardLimit!=null){ ci=s.subcats[i]; break; } }
+  if(!ci){ for(i=0;i<s.subcats.length;i++){ if(/karta\s*kredytowa/i.test(s.subcats[i].name)){ ci=s.subcats[i]; break; } } }
+  if(ci && !pos.some(function(p){ return p.subId===ci.id; })) pos.push({id:"l-"+ci.id, name:"Karta kredytowa", subId:ci.id});
+  s.liquid={ positions:pos, manual:{} };
+}
+function liqById(id){
+  if(!state.liquid) migrateLiquid(state);
+  for(var i=0;i<state.liquid.positions.length;i++){ if(state.liquid.positions[i].id===id) return state.liquid.positions[i]; }
+  return null;
+}
+function liquidComputed(pos,pm){
+  if(!pos.subId) return null;
+  var ci=cardInfo();
+  if(ci && ci.sub.id===pos.subId){ var cv=cardStan(pm); return (cv===null)?0:cv; }
+  return spentOf(pm,pos.subId);
+}
+function liquidManual(pm,posId){ var k=pm+"::pos:"+posId; return (k in state.liquid.manual)?state.liquid.manual[k]:null; }
+function liquidVal(pos,pm){
+  var man=liquidManual(pm,pos.id); if(man!==null) return man;
+  var c=liquidComputed(pos,pm); return (c===null)?0:c;
+}
+function liquidTotal(pm){
+  if(!state.liquid) migrateLiquid(state);
+  var t=0; state.liquid.positions.forEach(function(p){ t+=liquidVal(p,pm); });
+  return Math.round(t*100)/100;
+}
+function setLiquidManual(pm,posId,v){
+  if(!state.liquid) migrateLiquid(state);
+  var k=pm+"::pos:"+posId;
+  if(v!==null && !isNaN(v)) state.liquid.manual[k]=Math.round(v*100)/100; else delete state.liquid.manual[k];
+  saveState();
+}
+function liquidLinkOptions(sel){
+  var h='<option value="">\u2013 brak powiązania \u2013</option>';
+  state.groups.forEach(function(g){
+    var subs=subsOf(g.id);
+    if(!subs.length) return;
+    h+='<optgroup label="'+esc(g.name)+'">';
+    subs.forEach(function(s){ h+='<option value="'+s.id+'"'+(sel===s.id?' selected':'')+'>'+esc(s.name)+'</option>'; });
+    h+='</optgroup>';
+  });
+  return h;
+}
+function renderPlynne(){
+  if(!state.liquid) migrateLiquid(state);
+  var pm=addMonths(month,-1);
+  var h='<div class="card"><h3>Płynne środki na koniec '+monthLabel(pm)+'</h3>'
+    +'<div class="hint" style="margin-bottom:8px">Stan portfeli, kont i inwestycji z ostatniego dnia poprzedniego miesiąca. Pozycje powiązane z kategorią uzupełniają się same z kolumny \u201eWykonanie\u201d w zakładce Budżety (poprzedni miesiąc); karta kredytowa liczy się jak stan karty (wykonanie plus limit). Kolumna \u201eWpisany stan\u201d służy do ręcznego wpisania wartości, gdy danych jeszcze nie ma (np. pierwszy miesiąc używania aplikacji).</div>'
+    +'<div style="overflow-x:auto"><table><tr><th>Opis</th><th>Powiązanie (Budżety \u2192 Wykonanie)</th><th class="num">Z wykonania</th><th class="num">Wpisany stan</th><th class="num">Stan</th><th></th></tr>';
+  state.liquid.positions.forEach(function(p){
+    var comp=liquidComputed(p,pm), man=liquidManual(pm,p.id);
+    h+="<tr><td><input data-lname='"+p.id+"' value=\""+esc(p.name)+"\" style=\"width:100%\"></td>"
+      +'<td><select data-llink="'+p.id+'">'+liquidLinkOptions(p.subId)+'</select></td>'
+      +'<td class="num mut">'+((comp===null)?"-":pln(comp))+'</td>'
+      +'<td class="num"><input class="amount" data-lstan="'+p.id+'" value="'+((man!==null)?man.toString().replace(".",","):"")+'" placeholder="'+((comp!==null)?pln(comp):"0,00")+'"></td>'
+      +'<td class="num"><b>'+pln(liquidVal(p,pm))+'</b></td>'
+      +'<td class="num"><button class="btn mini danger" data-action="del-liquid" data-id="'+p.id+'">Usuń</button></td></tr>';
+  });
+  var tot=liquidTotal(pm);
+  h+='<tr><td colspan="4"><b>Razem: płynne środki na koniec '+monthLabel(pm)+'</b></td><td class="num"><b>'+pln(tot)+'</b></td><td></td></tr>';
+  h+='</table></div>';
+  h+='<div class="row" style="margin-top:10px"><input id="nl-name" placeholder="Nazwa nowej pozycji, np. Lokata" style="flex:1;min-width:160px">'
+    +'<select id="nl-link" style="max-width:280px">'+liquidLinkOptions(null)+'</select>'
+    +'<button class="btn" data-action="add-liquid">Dodaj pozycję</button></div>';
+  h+='<div class="hint" style="margin-top:6px">Nową pozycję można od razu powiązać z kategorią; wtedy jej stan w kolejnych miesiącach zapisze się sam z zakładki Budżety. \u201e\u2013 brak powiązania \u2013\u201d to pozycja z wpisanym ręcznie stanem.</div>';
+  var opv=oszczPoprz(month), mmatch=(opv!==null && Math.abs(opv-tot)<=0.005);
+  h+='<div class="hint" style="margin-top:8px'+((opv!==null&&!mmatch)?';color:var(--red)':'')+'">'
+    +'Oszczędności z końca poprzedniego miesiąca (Pulpit, Bilans miesiąca): '+((opv===null)?"nie ustawiono":pln(opv))
+    +((opv!==null)?(mmatch?' \u2013 zgodne z sumą powyżej.':' \u2013 UWAGA: kwota różni się od sumy powyżej o '+pln(Math.abs(Math.round((tot-opv)*100)/100))+' (karta kredytowa liczona jest tu z limitem, jak w arkuszu); warto uzgodnić.'):'')+'</div>';
+  h+='</div>';
+  return h;
+}
+
 // ---------- kategorie i dane ----------
 function renderDane(){
   var h='<div class="card"><h3>Grupy kategorii</h3><table><tr><th>Nazwa</th><th>Typ</th><th class="num">Podkategorie</th><th></th></tr>';
@@ -725,6 +812,7 @@ function renderView(){
   if(activeTab==="pulpit") h=renderPulpit();
   else if(activeTab==="transakcje") h=renderTransakcje();
   else if(activeTab==="budzety") h=renderBudzety();
+  else if(activeTab==="plynne") h=renderPlynne();
   else h=renderDane();
   el.innerHTML=h;
 }
@@ -775,7 +863,7 @@ function importJSON(file){
     try{
       var s=JSON.parse(rd.result);
       if(!s||s.version!==2||!Array.isArray(s.groups)||!Array.isArray(s.subcats)||!Array.isArray(s.txns)) throw new Error("bad");
-      state=s; saveState(); month=state.month||month; renderAll();
+      state=s; migrateLiquid(state); saveState(); month=state.month||month; renderAll();
     }catch(e){ alert("Plik nie wygląda na kopię tej aplikacji (oczekiwano formatu v2)."); }
   };
   rd.readAsText(file);
@@ -3287,7 +3375,7 @@ function syncPull(auto){
       var s;
       try{ s=JSON.parse(txt); }catch(e){ throw new Error("Odszyfrowane dane nie są poprawnym JSON-em."); }
       if(!s || s.version!==2 || !Array.isArray(s.groups) || !Array.isArray(s.txns)) throw new Error("Odszyfrowane dane nie są zgodne z formatem aplikacji (v2).");
-      state=s; month=(state.month&&state.month.length>=7)?state.month.slice(0,7):currentMonth(); editTxnId=null;
+      state=s; migrateLiquid(state); month=(state.month&&state.month.length>=7)?state.month.slice(0,7):currentMonth(); editTxnId=null;
       saveState();
       var m2=syncLoadMeta(); m2.dirty=false; m2.lastPull=new Date().toISOString(); m2.lastRemoteAt=payload.updatedAt; syncSaveMeta(m2);
       syncStatus((auto?"Zaktualizowano dane z serwera":"Pobrano dane z serwera")+" (wersja z "+syncFmtDate(payload.updatedAt)+").");
@@ -3378,6 +3466,19 @@ document.getElementById("view").addEventListener("click",function(ev){
       syncMsg=null; renderView();
     }
   }
+  else if(a==="add-liquid"){
+    var nL=(document.getElementById("nl-name").value||"").trim(), lkL=document.getElementById("nl-link").value;
+    if(!nL){ alert("Proszę podać nazwę nowej pozycji."); return; }
+    state.liquid.positions.push({id:"l-"+uid(), name:nL, subId:lkL||null});
+    saveState(); renderView();
+  }
+  else if(a==="del-liquid"){
+    if(confirm("Usunąć pozycję płynnych środków?\n\nNie usuwa to kategorii ani transakcji; znika tylko ta pozycja z tej zakładki.")){
+      state.liquid.positions=state.liquid.positions.filter(function(p){ return p.id!==id; });
+      for(var kL in state.liquid.manual){ if(kL.endsWith("::pos:"+id)) delete state.liquid.manual[kL]; }
+      saveState(); renderView();
+    }
+  }
   else if(a==="clear"){
     if(confirm("Usunąć WSZYSTKIE dane (transakcje, budżety, kategorie) i przywrócić stan początkowy?")){
       try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
@@ -3401,6 +3502,16 @@ document.getElementById("view").addEventListener("change",function(ev){
     var v=t.value.trim()?parseAmount(t.value):null;
     kpi(month,d,v);
     if(d==="srodki"||d==="wplyny"||d==="oszczpoprz") renderView();
+  }
+  else if(t.hasAttribute && (d=t.getAttribute("data-lname"))){
+    var lp=liqById(d); if(lp && t.value.trim()){ lp.name=t.value.trim(); saveState(); }
+  }
+  else if(t.hasAttribute && (d=t.getAttribute("data-llink"))){
+    var lp2=liqById(d); if(lp2){ lp2.subId=t.value||null; saveState(); renderView(); }
+  }
+  else if(t.hasAttribute && (d=t.getAttribute("data-lstan"))){
+    setLiquidManual(addMonths(month,-1), d, t.value.trim()?parseAmount(t.value):null);
+    renderView();
   }
   else if(t.hasAttribute && (d=t.getAttribute("data-gname"))){ var g=groupById(d); if(g&&t.value.trim()){ g.name=t.value.trim(); saveState(); } }
   else if(t.hasAttribute && (d=t.getAttribute("data-gtype"))){ var g2=groupById(d); if(g2){ g2.type=t.value; saveState(); renderView(); } }
