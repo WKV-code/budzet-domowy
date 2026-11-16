@@ -606,8 +606,20 @@ function renderTransakcje(){
 
 // ---------- budżety ----------
 function renderBudzety(){
-  var m=month;
-  var h='<div class="card"><h3>Plan wpływów: '+monthLabel(m)+'</h3><table>'
+  var m=month, z=zeroBudget(m);
+  var dysp=Math.round((z.srodki-z.plan)*100)/100;
+  var dCls=(dysp<0)?"neg":((dysp===0)?"pos":"");
+  var dStyle=(dysp>0)?' style="color:var(--amber)"':'';
+  var dTxt=(dysp===0)?"Wszystkie wpływy zaplanowane co do grosza.":((dysp>0)?"Wpływy jeszcze bez przydziału w planach.":"Zaplanowano więcej niż założone wpływy.");
+  var h="";
+  h+='<div class="grid g2">'
+    +'<div class="card"><h3>Założone wpływy</h3><div class="big">'+pln(z.srodki)+'</div>'
+    +'<div class="hint">Ta sama kwota co \u201eŚrodki do rozdysponowania\u201d na Pulpicie. Edytowalne; domyślnie przychód miesiąca: '+pln(z.income)+'</div>'
+    +'<input class="kpi-edit" data-kpi="srodki" data-init="1" value="'+(kpi(m,"srodki")!==null?kpi(m,"srodki"):"")+'" placeholder="'+pln(z.income)+'" size="10"></div>'
+    +'<div class="card"><h3>Dyspozycja wpływów</h3><div class="big '+dCls+'"'+dStyle+'>'+pln(dysp)+'</div>'
+    +'<div class="hint">Założone wpływy minus suma planów kategorii ('+pln(z.plan)+'). '+dTxt+'</div></div>'
+    +"</div>";
+  h+='<div class="card" style="margin-top:12px"><h3>Plan wpływów: '+monthLabel(m)+'</h3><table>'
     +"<tr><th>Dochód</th><th class='num'>Plan (założone)</th><th class='num'>Wpłynęło</th><th class='num'>Różnica</th></tr>";
   state.incomeCats.forEach(function(c){
     var plan=incPlanOf(m,c.id), act=incSpentOf(m,c.id), diff=Math.round((act-plan)*100)/100;
