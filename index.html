@@ -441,10 +441,15 @@ function defaultTxnDate(){
   var t=new Date(), td=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");
   return td.slice(0,7)===month ? td : month+"-01";
 }
+function szacPrzych(m){
+  var v=kpi(m,"szacprzychod"); if(v!==null) return v;
+  var w=kpi(m,"wplyny"); if(w!==null) return w;
+  return state.incomeCats.reduce(function(a,c){ return a+incPlanOf(m,c.id); },0);
+}
 function zeroBudget(m){
   var s=sums(m);
   var planTotal=state.subcats.reduce(function(a,x){ return a+planOf(m,x.id); },0);
-  var srodki = kpi(m,"srodki"); if(srodki===null) srodki=s.income;
+  var srodki=Math.round((liquidTotal(addMonths(m,-1))+szacPrzych(m))*100)/100;
   var wplynyPlan = state.incomeCats.reduce(function(a,x){ return a+incPlanOf(m,x.id); },0);
   var wplyny = kpi(m,"wplyny"); if(wplyny===null) wplyny=wplynyPlan;
   return {
@@ -512,8 +517,9 @@ function renderPulpit(){
 
   var h='<div class="grid g3">';
   h+='<div class="card"><h3>Środki do rozdysponowania</h3><div class="big">'+pln(z.srodki)+'</div>'
-    +'<div class="hint">Edytowalne; domyślnie przychód miesiąca: '+pln(z.income)+'</div>'
-    +'<input class="kpi-edit" data-kpi="srodki" data-init="1" value="'+(kpi(m,"srodki")!==null?kpi(m,"srodki"):"")+'" placeholder="'+pln(z.income)+'" size="10"></div>';
+    +'<div class="hint">Płynne środki na koniec poprzedniego miesiąca: '+pln(liquidTotal(addMonths(m,-1)))+' (zakładka Płynne środki) + szacowany przychód miesiąca (pole poniżej)</div>'
+    +'<label style="font-size:12px;margin-top:4px;display:block">Szacowany przychód miesiąca</label>'
+    +'<input class="kpi-edit" data-kpi="szacprzychod" data-init="1" value="'+(kpi(m,"szacprzychod")!==null?kpi(m,"szacprzychod"):"")+'" placeholder="'+pln(szacPrzych(m))+'" size="10"></div>';
   h+='<div class="card"><h3>Zaplanowane w budżecie</h3><div class="big">'+pln(z.plan)+'</div><div class="hint">Suma limitów wszystkich kategorii</div></div>';
   h+='<div class="card"><h3>Pozostało do zaplanowania</h3><div class="big '+(z.left<0?"neg":"pos")+'">'+pln(z.left)+'</div><div class="hint">'+(z.left<0?"Zaplanowane ponad środki":"Środki bez przydziału")+'</div></div>';
   h+="</div>";
@@ -610,14 +616,13 @@ function renderBudzety(){
   var dysp=Math.round((z.srodki-z.plan)*100)/100;
   var dCls=(dysp<0)?"neg":((dysp===0)?"pos":"");
   var dStyle=(dysp>0)?' style="color:var(--amber)"':'';
-  var dTxt=(dysp===0)?"Wszystkie wpływy zaplanowane co do grosza.":((dysp>0)?"Wpływy jeszcze bez przydziału w planach.":"Zaplanowano więcej niż założone wpływy.");
+  var dTxt=(dysp===0)?"Wszystkie środki zaplanowane co do grosza.":((dysp>0)?"Środki jeszcze bez przydziału w planach.":"Zaplanowano więcej niż suma środków do dyspozycji.");
   var h="";
   h+='<div class="grid g2">'
-    +'<div class="card"><h3>Założone wpływy</h3><div class="big">'+pln(z.srodki)+'</div>'
-    +'<div class="hint">Ta sama kwota co \u201eŚrodki do rozdysponowania\u201d na Pulpicie. Edytowalne; domyślnie przychód miesiąca: '+pln(z.income)+'</div>'
-    +'<input class="kpi-edit" data-kpi="srodki" data-init="1" value="'+(kpi(m,"srodki")!==null?kpi(m,"srodki"):"")+'" placeholder="'+pln(z.income)+'" size="10"></div>'
+    +'<div class="card"><h3>Suma Środków do Dyspozycji</h3><div class="big">'+pln(z.srodki)+'</div>'
+    +'<div class="hint">Ta sama kwota co \u201eŚrodki do rozdysponowania\u201d na Pulpicie: płynne środki na koniec poprzedniego miesiąca (zakładka Płynne środki) plus szacowany przychód miesiąca. Edycja na Pulpicie.</div></div>'
     +'<div class="card"><h3>Dyspozycja wpływów</h3><div class="big '+dCls+'"'+dStyle+'>'+pln(dysp)+'</div>'
-    +'<div class="hint">Założone wpływy minus suma planów kategorii ('+pln(z.plan)+'). '+dTxt+'</div></div>'
+    +'<div class="hint">Suma Środków do Dyspozycji minus suma planów kategorii ('+pln(z.plan)+'). '+dTxt+'</div></div>'
     +"</div>";
   h+='<div class="card" style="margin-top:12px"><h3>Plan wpływów: '+monthLabel(m)+'</h3><table>'
     +"<tr><th>Dochód</th><th class='num'>Plan (założone)</th><th class='num'>Wpłynęło</th><th class='num'>Różnica</th></tr>";
@@ -3501,7 +3506,7 @@ document.getElementById("view").addEventListener("change",function(ev){
   else if(t.hasAttribute && (d=t.getAttribute("data-kpi"))){
     var v=t.value.trim()?parseAmount(t.value):null;
     kpi(month,d,v);
-    if(d==="srodki"||d==="wplyny"||d==="oszczpoprz") renderView();
+    if(d==="szacprzychod"||d==="wplyny"||d==="oszczpoprz") renderView();
   }
   else if(t.hasAttribute && (d=t.getAttribute("data-lname"))){
     var lp=liqById(d); if(lp && t.value.trim()){ lp.name=t.value.trim(); saveState(); }
