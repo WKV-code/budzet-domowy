@@ -624,6 +624,13 @@ function renderBudzety(){
     +'<div class="card"><h3>Dyspozycja wpływów</h3><div class="big '+dCls+'"'+dStyle+'>'+pln(dysp)+'</div>'
     +'<div class="hint">Suma Środków do Dyspozycji minus suma planów kategorii ('+pln(z.plan)+'). '+dTxt+'</div></div>'
     +"</div>";
+  var pm=addMonths(m,-1), cc=liquidCarryList(m);
+  if(cc.n>0){
+    h+='<div class="card" style="margin-top:12px"><div class="row" style="align-items:center;gap:10px">'
+      +'<button class="btn" data-action="liquid-carry">Przenieś stany z '+monthLabel(pm)+' do Plan</button>'
+      +'<span class="mut" style="font-size:13px">'+cc.n+' poz. płynnych bez planu, razem '+pln(cc.sum)+'</span></div>'
+      +'<div class="hint" style="margin-top:6px">Kopiuje stan na koniec '+monthLabel(pm)+' (zakładka Płynne środki: lokaty, konta, portfele) do pól Plan w tym miesiącu. Karta kredytowa przenosi się jako saldo, bez limitu karty. Istniejących planów nie nadpisuje.</div></div>';
+  }
   h+='<div class="card" style="margin-top:12px"><h3>Plan wpływów: '+monthLabel(m)+'</h3><table>'
     +"<tr><th>Dochód</th><th class='num'>Plan (założone)</th><th class='num'>Wpłynęło</th><th class='num'>Różnica</th></tr>";
   state.incomeCats.forEach(function(c){
@@ -690,6 +697,22 @@ function liquidTotal(pm){
   if(!state.liquid) migrateLiquid(state);
   var t=0; state.liquid.positions.forEach(function(p){ t+=liquidVal(p,pm); });
   return Math.round(t*100)/100;
+}
+function liquidCarryList(m){
+  if(!state.liquid) migrateLiquid(state);
+  var pm=addMonths(m,-1), out=[], sum=0, ci=cardInfo();
+  state.liquid.positions.forEach(function(p){
+    if(!p.subId) return;
+    if(!(subById(p.subId))) return;
+    var k=m+"::sub:"+p.subId;
+    if(k in state.budgets) return;
+    var v=Math.round(liquidVal(p,pm)*100)/100;
+    if(ci && ci.sub && ci.sub.id===p.subId) v=Math.round((v-ci.limit)*100)/100;
+    if(!v) return;
+    out.push({posId:p.id, subId:p.subId, val:v});
+    sum+=v;
+  });
+  return {list:out, n:out.length, sum:Math.round(sum*100)/100};
 }
 function setLiquidManual(pm,posId,v){
   if(!state.liquid) migrateLiquid(state);
@@ -3464,6 +3487,13 @@ document.getElementById("view").addEventListener("click",function(ev){
     syncSaveCfg(cNew);
     syncStatus("Konfiguracja wczytana z kodu.");
     syncPull(false);
+  }
+  else if(a==="liquid-carry"){
+    var cc=liquidCarryList(month);
+    if(!cc.n){ alert("Wszystkie pozycje płynne mają już plan w tym miesiącu."); return; }
+    cc.list.forEach(function(x){ setPlan(month, x.subId, x.val); });
+    alert("Przeniesiono stany z poprzedniego miesiąca do "+cc.n+" pozycji Plan (razem "+pln(cc.sum)+").");
+    renderView();
   }
   else if(a==="sync-clear"){
     if(confirm("Usunąć ustawienia synchronizacji z tego urządzenia (token i hasło)?\n\nDane lokalne i dane na serwerze pozostają bez zmian.")){
