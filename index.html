@@ -633,12 +633,19 @@ function renderBudzety(){
   }
   h+='<div class="card" style="margin-top:12px"><h3>Plan wpływów: '+monthLabel(m)+'</h3><table>'
     +"<tr><th>Dochód</th><th class='num'>Plan (założone)</th><th class='num'>Wpłynęło</th><th class='num'>Różnica</th></tr>";
+  var incTotPlan=0, incTotAct=0;
   state.incomeCats.forEach(function(c){
     var plan=incPlanOf(m,c.id), act=incSpentOf(m,c.id), diff=Math.round((act-plan)*100)/100;
+    incTotPlan+=plan; incTotAct+=act;
     h+="<tr><td>"+esc(c.name)+(c.passive?' <span class="badge Z">Z/S</span>':"")+"</td>"
       +'<td class="num"><input class="amount" data-incplan="'+c.id+'" value="'+(plan?plan.toString().replace(".",","):"")+'" placeholder="0,00"></td>'
       +'<td class="num">'+pln(act)+'</td><td class="num '+(diff>0?"pos":"mut")+'">'+pln(diff)+"</td></tr>";
   });
+  var incTotDiff=Math.round((incTotAct-incTotPlan)*100)/100;
+  h+="<tr style='border-top:2px solid var(--line,#ddd)'><td><b>Razem</b></td>"
+    +'<td class="num"><b>'+pln(incTotPlan)+'</b></td>'
+    +'<td class="num"><b>'+pln(incTotAct)+'</b></td>'
+    +'<td class="num '+(incTotDiff>0?"pos":"mut")+'"><b>'+pln(incTotDiff)+"</b></td></tr>";
   h+="</table></div>";
 
   budgetRows(m).forEach(function(r){
