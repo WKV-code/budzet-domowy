@@ -347,6 +347,7 @@ function saveState(){
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch(e){ showStorageWarn(); }
   try{ var _m=syncLoadMeta(); _m.dirty=true; syncSaveMeta(_m); }catch(e){}
+  try{ syncAutoSchedule(); }catch(e){}
 }
 function showStorageWarn(){
   var w=document.getElementById("storage-warn");
@@ -824,7 +825,8 @@ function renderDane(){
     +'<label>Repozytorium (użytkownik/repo)<input id="sync-repo" placeholder="np. WKV-code/budzet-sync" value="'+esc(cfgS?cfgS.repo:"")+'"></label>'
     +'<label>Token dostępowy GitHub (fine-grained)<input id="sync-token" type="password" placeholder="github_pat_..." value="'+esc(cfgS?cfgS.token:"")+'"></label>'
     +'<label>Hasło szyfrowania<input id="sync-pass" type="password" placeholder="min. 6 znaków" value="'+esc(cfgS?cfgS.pass:"")+'"></label></div>'
-    +'<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-top:8px"><input type="checkbox" id="sync-auto"'+((!cfgS||cfgS.auto)?" checked":"")+'> przy otwarciu aplikacji automatycznie pobierz dane z serwera</label>'
+    +'<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-top:8px"><input type="checkbox" id="sync-auto"'+((!cfgS||cfgS.auto)?" checked":"")+'> automatyczna synchronizacja: pobieraj dane z serwera przy otwarciu i wysyłaj moje zmiany na serwer</label>'
+    +'<div class="hint" style="margin-top:6px">Od wersji 14 zmiany są wysyłane na serwer samodzielnie (zwykle w ciągu około 20 sekund od ostatniej zmiany oraz przy zamykaniu aplikacji). Jeśli na serwerze jest nowsza wersja danych, wysyłanie jest wstrzymywane i wymaga ręcznego rozstrzygnięcia przyciskami powyżej; nic nie zostanie po cichu nadpisane.</div>'
     +'<div class="row" style="margin-top:10px">'
     +'<input id="sync-code" placeholder="Wklej kod konfiguracji (BDSYNC1:...)" style="flex:1;min-width:180px">'
     +'<button class="btn mini" data-action="sync-read"'+(syncBusy?' disabled':'')+'>Wczytaj kod</button>'
@@ -3424,6 +3426,55 @@ function syncPull(auto){
   }).then(function(r){ syncBusy=false; try{ renderView(); }catch(e){} return r; });
 }
 
+// --- automatyczne wysyłanie zmian na serwer (od wersji 14) ---
+var syncAutoTimer=null;
+function syncAutoSchedule(){
+  if(syncAutoTimer){ try{ clearTimeout(syncAutoTimer); }catch(e){} syncAutoTimer=null; }
+  var c=syncLoadCfg();
+  if(!c || !c.token || !c.pass || c.auto===false) return;
+  if(!syncLoadMeta().dirty) return;
+  syncAutoTimer=setTimeout(function(){ syncAutoTimer=null; syncAutoPush(); }, 20000);
+}
+function syncAutoPush(){
+  var c=syncLoadCfg();
+  if(!c || !c.token || !c.pass || c.auto===false) return Promise.resolve(null);
+  var m=syncLoadMeta();
+  if(!m.dirty || syncBusy) return Promise.resolve(null);
+  syncBusy=true;
+  var snap=JSON.stringify(state);
+  var payload={ magic:"BUDZETSYNC", v:1, updatedAt:new Date().toISOString(), data:null };
+  return ghGetFile(c).then(function(g){
+    var srvAt=null;
+    if(g && g.found){ try{ srvAt=(JSON.parse(g.payload)||{}).updatedAt||null; }catch(e){} }
+    if(srvAt && (!m.lastRemoteAt || srvAt>m.lastRemoteAt)){
+      syncStatus("Auto-wysyłanie wstrzymane: na serwerze jest nowsza wersja danych, której to urządzenie jeszcze nie pobrało. Proszę rozstrzygnąć ręcznie: Dane \u2192 Synchronizacja.");
+      return false;
+    }
+    return syncEncrypt(JSON.stringify(state), c.pass).then(function(enc){
+      payload.data=enc;
+      return ghPutFile(c, JSON.stringify(payload), (g&&g.found)?g.sha:null);
+    }).then(function(){
+      var m2=syncLoadMeta();
+      m2.dirty=(JSON.stringify(state)!==snap);
+      m2.lastPush=payload.updatedAt; m2.lastRemoteAt=payload.updatedAt;
+      syncSaveMeta(m2);
+      syncStatus("Zmiany wysłane automatycznie na serwer ("+syncFmtDate(payload.updatedAt)+").");
+      if(m2.dirty) syncAutoSchedule();
+      return true;
+    });
+  }).catch(function(err){
+    var msg=(err&&err.message)?err.message:String(err);
+    if(!/fetch|network|load failed/i.test(msg)) syncStatus("Auto-wysyłanie nie powiodło się: "+msg);
+    return false;
+  }).then(function(r){ syncBusy=false; try{ renderView(); }catch(e){} return r; });
+}
+function syncFlushOnExit(){
+  try{
+    if(syncAutoTimer){ try{ clearTimeout(syncAutoTimer); }catch(e){} syncAutoTimer=null; }
+    if(syncLoadMeta().dirty) syncAutoPush();
+  }catch(e){}
+}
+
 // ---------- zdarzenia ----------
 document.getElementById("prev-month").addEventListener("click",function(){ month=addMonths(month,-1); editTxnId=null; renderAll(); });
 document.getElementById("next-month").addEventListener("click",function(){ month=addMonths(month,1); editTxnId=null; renderAll(); });
@@ -3578,6 +3629,9 @@ try{
 }catch(e){}
 renderAll();
 setTimeout(function(){ syncPull(true); }, 400);
+setTimeout(function(){ syncAutoPush(); }, 12000);
+window.addEventListener("pagehide", syncFlushOnExit);
+window.addEventListener("beforeunload", syncFlushOnExit);
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   navigator.serviceWorker.register("sw.js").catch(function(){});
 }
