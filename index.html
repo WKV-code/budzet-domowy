@@ -383,6 +383,22 @@ function sums(m){
   for(var k in r){ if(typeof r[k]==="number") r[k]=Math.round(r[k]*100)/100; }
   return r;
 }
+function passiveCalc(m){
+  var s=sums(m), koszt=0, bySub={};
+  state.groups.forEach(function(g){
+    if(!g.name || g.name.toLowerCase().indexOf("inne wydatki")<0) return;
+    state.subcats.forEach(function(x){
+      if(x.groupId!==g.id) return;
+      if(x.name && x.name.toLowerCase().indexOf("opłaty bankowe")>=0) return;
+      var v=spentOf(m,x.id);
+      if(v){ koszt+=v; bySub[x.name]=(bySub[x.name]||0)+v; }
+    });
+  });
+  var ks=[];
+  for(var n in bySub) ks.push({name:n,v:Math.round(bySub[n]*100)/100});
+  ks.sort(function(a,b){return b.v-a.v;});
+  return { inc:Math.round(s.passive*100)/100, koszt:Math.round(koszt*100)/100, net:Math.round((s.passive-koszt)*100)/100, bySub:ks };
+}
 function planOf(m,subId){ return state.budgets[m+"::sub:"+subId]||0; }
 function setPlan(m,subId,v){ var k=m+"::sub:"+subId; if(v) state.budgets[k]=v; else delete state.budgets[k]; saveState(); }
 function incPlanOf(m,incId){ return state.incomePlans[m+"::inc:"+incId]||0; }
@@ -534,8 +550,14 @@ function renderPulpit(){
   h+='<div class="card"><h3>Założone wpływy</h3><div class="big">'+pln(z.wplyny)+'</div>'
     +'<div class="hint">Plan wpływów; wykonanie: '+pln(z.income)+'</div>'
     +'<input class="kpi-edit" data-kpi="wplyny" data-init="1" value="'+(kpi(m,"wplyny")!==null?kpi(m,"wplyny"):"")+'" placeholder="'+pln(z.wplyny)+'" size="10"></div>';
-  h+='<div class="card"><h3>Z/S ALL (dochód pasywny)</h3><div class="big" style="color:var(--blue)">'+pln(s.passive)+'</div>'
-    +'<div class="hint">'+(zstable.length? zstable.map(function(x){return esc(x.name)+": "+pln(x.v);}).join(" · ") : "brak zysków pasywnych w tym miesiącu")+'</div></div>';
+  var pc=passiveCalc(m), pcH;
+  if(!pc.inc && !pc.koszt){ pcH='brak zysków pasywnych w tym miesiącu'; }
+  else{
+    pcH='Wpłynęło Z/S: '+pln(pc.inc)+(zstable.length?' ('+zstable.map(function(x){return esc(x.name)+": "+pln(x.v);}).join(" · ")+')':'')
+      +'<br>minus Inne wydatki (bez opłat bankowych): '+pln(pc.koszt)+(pc.bySub.length?' ('+pc.bySub.map(function(x){return esc(x.name)+": "+pln(x.v);}).join(" · ")+')':'');
+  }
+  h+='<div class="card"><h3>Dochód Pasywny</h3><div class="big" style="color:var(--blue)">'+pln(pc.net)+'</div>'
+    +'<div class="hint">'+pcH+'</div></div>';
   if(ci){
     var kkStan=cardStan(m), saldo=Math.round((kkStan-ci.limit)*100)/100;
     h+='<div class="card"><h3>Stan karty kredytowej</h3><div class="big">'+pln(kkStan)+'</div>'
@@ -582,7 +604,7 @@ function renderTransakcje(){
   h+='<label>Rodzaj<select id="f-kind"><option value="expense"'+(kind==="expense"?" selected":"")+'>Obciążenie (wydatek / oszczędności / rebalancing)</option><option value="income"'+(kind==="income"?" selected":"")+'>Dochód</option></select></label>';
   h+='<label>Kategoria<select id="f-cat">'+catOptions(kind, window.__txnCat||null)+'</select></label>';
   h+='<label>Data<input type="date" id="f-date" value="'+(window.__txnDate||defaultTxnDate())+'" required></label>';
-  h+='<label>Kwota (zł)<span style="display:inline-flex;gap:6px;align-items:center"><input class="amount" id="f-amount" inputmode="decimal" placeholder="0,00" required><button type="button" class="btn mini sec" data-action="toggle-sign" title="Zmień znak kwoty: ujemna = rozchód z aktywu (np. karta)">±</button></span></label>';
+  h+='<label>Kwota (zł)<span style="display:inline-flex;gap:6px;align-items:center"><input class="amount" id="f-amount" inputmode="decimal" placeholder="0,00" required><button type="button" class="btn mini sec" data-action="toggle-sign" title="Zmień znak kwoty (ujemna = np. korekta dochodu, rozchód z aktywu)">±</button></span></label>';
   h+='<label>Opis<input id="f-note" placeholder="np. sklepowe"></label>';
   h+='<button class="btn" type="submit">'+(editTxnId?"Zapisz zmiany":"Dodaj")+'</button>';
   if(editTxnId) h+='<button class="btn sec" type="button" data-action="cancel-edit">Anuluj</button>';
@@ -875,7 +897,6 @@ function submitTxn(){
   var amount=parseAmount(document.getElementById("f-amount").value);
   var note=document.getElementById("f-note").value.trim();
   if(!catRaw||!date||amount===0){ alert("Proszę podać kategorię, datę i kwotę różną od zera."); return; }
-  if(kind==="income"&&amount<0){ alert("Kwota dochodu nie może być ujemna. Ujemne kwoty są dostępne dla obciążeń (np. rozchód z karty)."); return; }
   var catId=catRaw.slice(2), isIncome=catRaw.slice(0,2)==="i:";
   if(isIncome!== (kind==="income")){ alert("Wybrana kategoria nie pasuje do rodzaju transakcji."); return; }
   if(editTxnId){
