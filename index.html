@@ -604,7 +604,7 @@ function renderTransakcje(){
   h+='<label>Rodzaj<select id="f-kind"><option value="expense"'+(kind==="expense"?" selected":"")+'>Obciążenie (wydatek / oszczędności / rebalancing)</option><option value="income"'+(kind==="income"?" selected":"")+'>Dochód</option></select></label>';
   h+='<label>Kategoria<select id="f-cat">'+catOptions(kind, window.__txnCat||null)+'</select></label>';
   h+='<label>Data<input type="date" id="f-date" value="'+(window.__txnDate||defaultTxnDate())+'" required></label>';
-  h+='<label>Kwota (zł)<span style="display:inline-flex;gap:6px;align-items:center"><input class="amount" id="f-amount" inputmode="decimal" placeholder="0,00" required><button type="button" class="btn mini sec" data-action="toggle-sign" title="Zmień znak kwoty (ujemna = np. korekta dochodu, rozchód z aktywu)">±</button></span></label>';
+  h+='<label>Kwota (zł)<span style="display:inline-flex;gap:6px;align-items:center"><input class="amount" id="f-amount" inputmode="decimal" placeholder="0,00" required><button type="button" class="btn mini sec" data-action="toggle-sign" title="Zmień znak kwoty (ujemna = np. korekta dochodu, rozchód z aktywu)">±</button><button type="button" class="btn mini sec" data-action="f-calc" title="Kalkulator kwoty (dodawanie, odejmowanie, mnożenie, dzielenie)">∑</button></span></label>';
   h+='<label>Opis<input id="f-note" placeholder="np. sklepowe"></label>';
   h+='<button class="btn" type="submit">'+(editTxnId?"Zapisz zmiany":"Dodaj")+'</button>';
   if(editTxnId) h+='<button class="btn sec" type="button" data-action="cancel-edit">Anuluj</button>';
@@ -925,6 +925,117 @@ function importJSON(file){
     }catch(e){ alert("Plik nie wygląda na kopię tej aplikacji (oczekiwano formatu v2)."); }
   };
   rd.readAsText(file);
+}
+
+
+// ---------- kalkulator kwoty (przycisk "sum" w polu Kwota) ----------
+var CALC_KEYS=["C","B","(",")","7","8","9","÷","4","5","6","×","1","2","3","−","0",",","±","+"];
+var CKID={"C":"C","B":"B","(":"LP",")":"RP","7":"7","8":"8","9":"9","÷":"DIV","4":"4","5":"5","6":"6","×":"MUL","1":"1","2":"2","3":"3","−":"MIN","0":"0",",":"CMA","±":"SIG","+":"PLS"};
+function calcEval(src){
+  var s=String(src||"").replace(/,/g,".").replace(/×/g,"*").replace(/÷/g,"/").replace(/−/g,"-").replace(/\s+/g,"");
+  if(!s) return null;
+  var i=0;
+  function num(){
+    var j=i;
+    while(i<s.length && ((s[i]>="0"&&s[i]<="9")||s[i]===".")) i++;
+    if(j===i) return null;
+    return parseFloat(s.slice(j,i));
+  }
+  function factor(){
+    var v;
+    if(s[i]==="("){ i++; v=expr(); if(v===null||s[i]!==")") return null; i++; return v; }
+    if(s[i]==="-"){ i++; v=factor(); return (v===null)?null:-v; }
+    if(s[i]==="+"){ i++; return factor(); }
+    return num();
+  }
+  function term(){
+    var v=factor(); if(v===null) return null;
+    while(s[i]==="*"||s[i]==="/"){
+      var op=s[i]; i++;
+      var w=factor(); if(w===null) return null;
+      if(op==="*") v*=w; else { if(w===0) return null; v/=w; }
+    }
+    return v;
+  }
+  function expr(){
+    var v=term(); if(v===null) return null;
+    while(s[i]==="+"||s[i]==="-"){
+      var op=s[i]; i++;
+      var w=term(); if(w===null) return null;
+      v=(op==="+")?v+w:v-w;
+    }
+    return v;
+  }
+  var r=expr();
+  if(r===null||i!==s.length||!isFinite(r)) return null;
+  return Math.round(r*100)/100;
+}
+function calcClose(){
+  var o=document.getElementById("calc-overlay");
+  if(o&&o.parentNode) o.parentNode.removeChild(o);
+}
+function calcPress(k,disp){
+  var v=String(disp.value||"");
+  if(k==="C"){ disp.value=""; return; }
+  if(k==="B"){ disp.value=v.slice(0,-1); return; }
+  if(k==="±"){
+    disp.value=(v.charAt(0)==="−"||v.charAt(0)==="-")?v.slice(1):"−"+v;
+    return;
+  }
+  if("÷×−+".indexOf(k)>=0){
+    var last=v.charAt(v.length-1);
+    if("÷×−+".indexOf(last)>=0){ disp.value=v.slice(0,-1)+k; return; }
+    if(!v&&k!=="−") return;
+    disp.value=v+k; return;
+  }
+  if(k===","&&!v){ disp.value="0,"; return; }
+  disp.value=v+k;
+}
+function calcEq(disp){
+  var r=calcEval(disp.value);
+  if(r===null){ disp.value="Błąd wyrażenia"; return null; }
+  disp.value=String(r).replace(".",",");
+  return r;
+}
+function calcShow(){
+  calcClose();
+  var ov=document.createElement("div");
+  ov.id="calc-overlay";
+  ov.style.cssText="position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px";
+  var box=document.createElement("div");
+  box.style.cssText="background:var(--card,#ffffff);color:var(--ink,#0f172a);border-radius:12px;padding:16px;max-width:340px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,0.3)";
+  var keyHtml=CALC_KEYS.map(function(k){
+    var l=(k==="B")?"⌫":k;
+    return '<button type="button" id="ck-'+CKID[k]+'" style="padding:10px 0;font-size:16px;border:1px solid var(--line,#e2e8f0);background:var(--bg,#f8fafc);color:inherit;border-radius:8px;cursor:pointer">'+l+'</button>';
+  }).join("");
+  box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:14px">Kalkulator kwoty</b><button type="button" id="calc-close" class="btn mini sec">Zamknij</button></div>'
+    +'<input id="calc-disp" inputmode="text" autocomplete="off" placeholder="np. 12,50+3 lub 100−25,5×2" style="width:100%;box-sizing:border-box;font-size:20px;text-align:right;padding:10px;border:1px solid var(--line,#e2e8f0);border-radius:8px;background:var(--bg,#f8fafc);color:inherit">'
+    +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px">'
+      +'<button type="button" id="ck-eq" style="grid-column:span 4;padding:10px 0;font-size:16px;font-weight:700;border:1px solid var(--line,#e2e8f0);background:var(--bg,#f8fafc);color:inherit;border-radius:8px;cursor:pointer">=</button>'
+      +keyHtml
+      +'<button type="button" id="ck-ins" style="grid-column:span 4;padding:10px 0;font-size:15px;font-weight:700;border:none;background:var(--blue,#2563eb);color:#ffffff;border-radius:8px;cursor:pointer">Wstaw kwotę do formularza</button>'
+    +'</div>';
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+  var disp=document.getElementById("calc-disp");
+  disp.value=String(document.getElementById("f-amount").value||"").trim();
+  CALC_KEYS.forEach(function(k){
+    document.getElementById("ck-"+CKID[k]).addEventListener("click",function(){ calcPress(k,disp); disp.focus(); });
+  });
+  document.getElementById("ck-eq").addEventListener("click",function(){ calcEq(disp); disp.focus(); });
+  document.getElementById("ck-ins").addEventListener("click",function(){
+    var cur=String(disp.value||"").trim();
+    var r=(cur==="")?null:calcEq(disp);
+    if(r===null){ disp.focus(); return; }
+    document.getElementById("f-amount").value=r.toFixed(2).replace(".",",");
+    calcClose();
+  });
+  document.getElementById("calc-close").addEventListener("click",calcClose);
+  disp.addEventListener("keydown",function(ev){
+    if((ev.key==="Enter")||(ev.keyCode===13)){ ev.preventDefault(); calcEq(disp); }
+  });
+  ov.addEventListener("click",function(ev){ if(ev.target===ov) calcClose(); });
+  disp.focus();
 }
 
 
@@ -3509,6 +3620,9 @@ document.getElementById("view").addEventListener("click",function(ev){
   if(a==="edit-txn"){ var t=findTxn(id); if(t) fillForm(t); }
   else if(a==="del-txn"){ if(confirm("Usunąć tę transakcję?")){ state.txns=state.txns.filter(function(x){return x.id!==id;}); saveState(); renderView(); } }
   else if(a==="cancel-edit"){ editTxnId=null; window.__txnKind=null; window.__txnCat=null; window.__txnDate=null; renderView(); }
+  else if(a==="f-calc"){
+    calcShow();
+  }
   else if(a==="toggle-sign"){
     var ta=document.getElementById("f-amount");
     if(ta){ var tv=ta.value.trim(); ta.value=(tv.charAt(0)==="-")?tv.slice(1):(tv?"-"+tv:tv); ta.focus(); }
