@@ -68,6 +68,7 @@ form.txn label{display:flex;flex-direction:column;font-size:11px;color:var(--mut
 .progress-list .item{margin-bottom:10px}
 .progress-list .top{display:flex;justify-content:space-between;font-size:13px;gap:8px}
 @media (max-width:640px){ .amount{width:90px} }
+.catbal{margin-top:10px;padding:9px 12px;border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:8px;background:var(--bg);display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between}
 </style>
 </head>
 <body>
@@ -598,6 +599,33 @@ function renderPulpit(){
 }
 
 // ---------- transakcje ----------
+// ---------- saldo kategorii pod formularzem transakcji (v17, pole tylko do odczytu) ----------
+function catBalDefault(kind){
+  if(kind==="income"){ return state.incomeCats.length?("i:"+state.incomeCats[0].id):""; }
+  for(var i=0;i<state.groups.length;i++){ var ss=subsOf(state.groups[i].id); if(ss.length) return "s:"+ss[0].id; }
+  return "";
+}
+function catBalanceHtml(raw,m){
+  if(!raw){ return '<span class="mut" style="font-size:13px">Saldo kategorii ('+esc(monthLabel(m))+'): pojawi się po wybraniu kategorii powyżej.</span>'; }
+  var isInc=(raw.slice(0,2)==="i:"), id=raw.slice(2);
+  var nm=isInc?((incById(id)||{}).name||"?"):((subById(id)||{}).name||"?");
+  var ml=esc(monthLabel(m));
+  if(isInc){
+    var act=incSpentOf(m,id), pl=incPlanOf(m,id), df=Math.round((act-pl)*100)/100;
+    return '<span class="mut" style="font-size:12px">Wpłynęło · '+esc(nm)+' · '+ml+' (jak w Budżetach)</span>'
+      +'<b style="font-size:16px">'+pln(act)+'</b>'
+      +'<span class="mut" style="font-size:12px">Plan: '+pln(pl)+' · Różnica: <span class="'+(df<0?"neg":"pos")+'">'+pln(df)+'</span></span>';
+  }
+  var sp=spentOf(m,id), pl2=planOf(m,id), lf=Math.round((pl2-sp)*100)/100;
+  return '<span class="mut" style="font-size:12px">Wykonanie · '+esc(nm)+' · '+ml+' (jak w Budżetach)</span>'
+    +'<b style="font-size:16px">'+pln(sp)+'</b>'
+    +'<span class="mut" style="font-size:12px">Plan: '+pln(pl2)+' · Zostało: <span class="'+(lf<0?"neg":"pos")+'">'+pln(lf)+'</span></span>';
+}
+function updateCatBalance(){
+  var box=document.getElementById("cat-balance");
+  if(!box) return;
+  box.innerHTML=catBalanceHtml(window.__txnCat||catBalDefault(window.__txnKind||"expense"),month);
+}
 function renderTransakcje(){
   var h='<div class="card"><h3>Dodaj / edytuj transakcję</h3><form class="txn" id="txn-form">';
   var kind=window.__txnKind||"expense";
@@ -608,7 +636,9 @@ function renderTransakcje(){
   h+='<label>Opis<input id="f-note" placeholder="np. sklepowe"></label>';
   h+='<button class="btn" type="submit">'+(editTxnId?"Zapisz zmiany":"Dodaj")+'</button>';
   if(editTxnId) h+='<button class="btn sec" type="button" data-action="cancel-edit">Anuluj</button>';
-  h+="</form></div>";
+  h+="</form>";
+  h+='<div class="catbal" id="cat-balance" title="Bieżące saldo wybranej kategorii w danym miesiącu, tożsame z kolumną Wykonanie albo Wpłynęło w zakładce Budżety. Pole tylko do odczytu.">'+catBalanceHtml(window.__txnCat||catBalDefault(kind),month)+'</div>';
+  h+="</div>";
 
   var tx=txnsOf(month).slice().sort(function(a,b){ return a.date<b.date?1:(a.date>b.date?-1:0); });
   h+='<div class="card" style="margin-top:12px"><h3>Transakcje: '+monthLabel(month)+' ('+tx.length+')</h3>';
@@ -3723,6 +3753,7 @@ document.getElementById("view").addEventListener("submit",function(ev){
 document.getElementById("view").addEventListener("change",function(ev){
   var t=ev.target;
   if(t.id==="f-kind"){ window.__txnKind=t.value; window.__txnCat=null; renderView(); return; }
+  if(t.id==="f-cat"){ window.__txnCat=t.value; updateCatBalance(); return; }
   var d;
   if(t.hasAttribute && (d=t.getAttribute("data-plan"))){ setPlan(month,d,parseAmount(t.value)); renderView(); }
   else if(t.hasAttribute && (d=t.getAttribute("data-incplan"))){ setIncPlan(month,d,parseAmount(t.value)); renderView(); }
