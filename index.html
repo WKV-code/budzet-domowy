@@ -440,6 +440,10 @@ function cardInfo(){
   return null;
 }
 function cardStan(m){ var ci=cardInfo(); return ci?Math.round((spentOf(m,ci.sub.id)+ci.limit)*100)/100:null; }
+function debitInfo(){
+  for(var i=0;i<state.subcats.length;i++){ var s=state.subcats[i]; if(/konto\s*hipoteczne/i.test(s.name||"")) return s; }
+  return null;
+}
 function nadplataOf(m){
   for(var i=0;i<state.subcats.length;i++){ var sb=state.subcats[i]; if(/nadpłata\s*kredytu/i.test(sb.name)) return spentOf(m,sb.id); }
   return 0;
@@ -564,6 +568,12 @@ function renderPulpit(){
     h+='<div class="card"><h3>Stan karty kredytowej</h3><div class="big">'+pln(kkStan)+'</div>'
       +'<div class="hint">Automatycznie: saldo kategorii + limit '+pln(ci.limit)+'. '
       +(saldo>0?'Nadpłata na karcie: '+pln(saldo):(saldo<0?'Kredyt wykorzystany: '+pln(-saldo):'Karta spłacona'))+'</div></div>';
+  }
+  var di=debitInfo();
+  if(di){
+    var dGrp=groupById(di.groupId);
+    h+='<div class="card"><h3>Stan karty debetowej</h3><div class="big">'+pln(spentOf(m,di.id))+'</div>'
+      +'<div class="hint">Automatycznie: kolumna Wykonanie kategorii '+esc(di.name)+(dGrp?' (grupa '+esc(dGrp.name)+')':'')+' w danym miesiącu, przelicza się po każdej transakcji. Rozchód z konta to kwota ujemna w tej kategorii, wpłata dodatnia.</div></div>';
   }
   h+="</div>";
 

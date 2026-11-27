@@ -1,5 +1,5 @@
 /* Budżet Domowy - service worker (offline cache-first) */
-var CACHE = "budzet-domowy-v17";
+var CACHE = "budzet-domowy-v18";
 var ASSETS = [
   "./",
   "./index.html",
